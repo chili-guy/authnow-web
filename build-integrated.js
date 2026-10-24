@@ -175,7 +175,10 @@ if (A['single-use']) {
   const F = chunkDir + '/' + vsqFile;
   patchFile(F, 'var w=t(4572),f=t(1067);function b(){', 'var w=t(4572),f=t(1067);' + HELPERS + 'function b(){', 1);
   patchFile(F, 'children:y?N.real:N.notVerified', 'children:y?N.real:(ANMSG(j,o)||{}).label||N.notVerified', 1);
-  patchFile(F, 'children:N.invalidMessage', 'children:(ANMSG(j,o)||{}).msg||N.invalidMessage', 1);
+  // mensagem do estado não-REAL + (se o produto é conhecido, ex.: "JÁ VALIDADO") a foto do produto embaixo.
+  // Código fora do banco não tem emissor → o.image é null → só o alerta, sem foto.
+  patchFile(F, '(0,n.jsx)("p",{className:m["invalid-message"],children:N.invalidMessage})',
+    '(0,n.jsxs)(n.Fragment,{children:[(0,n.jsx)("p",{className:m["invalid-message"],children:(ANMSG(j,o)||{}).msg||N.invalidMessage}),o.image&&(0,n.jsx)("section",{className:m["product-panel"],children:(0,n.jsx)("img",{className:m["product-image"],src:o.image,alt:o.name,onError:h(d.UF)})})]})', 1);
   patchFile(F, '(0,f.Pw)(a).then(a=>e&&c(a),()=>e&&c("error"))',
     '(0,f.Pw)(a).then(r=>"valid"!==r.verdict?r:ANCLAIM(a).then(k=>"first"===k.result?r:{verdict:k.result,issuer:r.issuer,firstAt:k.at,self:k.self})).then(a=>e&&c(a),()=>e&&c("error"))', 1);
   patchFile(F, 'product:(0,u.tv)(t.issuer,a,"valid"===t.verdict?"REAL":t.verdict.toUpperCase())',
