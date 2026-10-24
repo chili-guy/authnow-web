@@ -20,7 +20,7 @@ Cópia completa do site publicado em **`https://app-authnow.eth.limo/`**
 | --- | --- |
 | Códigos registrados | **21.000** — lote 1 (13.000, `codigos-13000.csv`) + lote 2 (8.000, `codigos-8000-lote2.csv`) |
 | Registro | **só os nossos 21.000** (`--only-new`: os 426.000 códigos do site antigo — Indufar/PureLabs — **saíram** e agora caem no ALERTA DE FALSIFICAÇÃO); lotes em `batches.json`: `authnow.com.br-2026-09-09-13000` e `authnow.com.br-2026-09-12-8000` (**emissor `indufar`** → foto, "T.G. 15 mg", links e PDF do medicamento) |
-| **CID para publicar** | `bafybeidwh2uavc2p6xtavr25c5zw57y6vneyhipfhdbd4kktzcl3u5n7ru` (só do conteúdo estático; a função `api/claim.js` só existe na Vercel) |
+| **CID para publicar** | `bafybeiejxjlvjatnafzesoft4ewtdihok4qhslkhq6uc6eai3bqfpuho6e` (conteúdo estático; não há função de servidor) |
 | Integridade | `MANIFEST-integrado.sha256` (324 arquivos) |
 
 **O que mudou em relação ao original** (261 arquivos; o resto é byte a byte igual):
@@ -32,29 +32,20 @@ Cópia completa do site publicado em **`https://app-authnow.eth.limo/`**
    `.../go/<codigo>` além de `/c/<emissor>/a/<codigo>`. **Sem isso o scanner do site rejeitaria as 21.000
    etiquetas já geradas** (`https://authnow.com.br/go/<codigo>`).
 4. `_redirects` — `/go/:code → /?code=:code` (302), igual à regra `/c/…` que já existia.
-5. **Validação única + alerta de falsificação** (`--single-use`, só em `app/vsq`) — ver seção abaixo.
+5. **Alerta de falsificação** (`--counterfeit-alert`, só em `app/vsq`): código fora do banco → alerta + caixa original; ver seção abaixo.
 6. **Scanner estrito** (`--strict-scan`, só em `app/scan`) — ver seção "Scanner do site" abaixo.
 7. **Textos sem "e cor"** (`--drop-color-text`): as etiquetas AuthNow não têm cor; as frases "código e cor" /
    "code and color" / "código y color" agora dizem só "código" (PT/ENG/SPA).
 
-### 🔒 Validação única (código usado uma vez) e alerta de falsificação
+### 🚨 Como o site responde (hoje: o código vale quantas vezes for preciso)
 
 | Situação | O que a pessoa vê (PT / ENG / SPA) |
 | --- | --- |
-| 1ª validação do código | **REAL** + foto/nome do produto (como antes) |
-| Código já validado antes (**qualquer** aparelho, inclusive o mesmo) | **JÁ VALIDADO** / **ALREADY VALIDATED** / **YA VALIDADO** + data/hora. Outro aparelho: "…se não foi você, pode ser uma cópia"; o mesmo aparelho: "Você já validou este produto em …" |
-| Código que **não está no banco** | **ALERTA DE FALSIFICAÇÃO** / **COUNTERFEIT ALERT** / **ALERTA DE FALSIFICACIÓN** |
+| Código **está no banco** (qualquer número de vezes) | **REAL** + foto da caixa, "T.G. 15 mg", links e PDF |
+| Código que **não está no banco** | **ALERTA DE FALSIFICAÇÃO** / **COUNTERFEIT ALERT** / **ALERTA DE FALSIFICACIÓN** + a caixa **original** com a legenda "Compare com a embalagem original" |
 | Código revogado/recall | tela que o site já tinha |
-| Servidor de validação fora do ar / sem Redis | "Não foi possível verificar" (**falha fechada**: nunca diz REAL sem conseguir registrar o uso) |
 
-Como funciona: a tela de resultado chama `POST /api/claim/` (`api/claim.js`, Vercel Function). A função
-confere o código no registro (`site-integrado/registry`, empacotado via `includeFiles`) e grava a "marca de uso"
-num Redis REST (Upstash / Vercel KV) com `SET … NX` — **atômico**: dois aparelhos ao mesmo tempo nunca recebem
-"REAL" os dois. Só o **hash** do código e o hash de um id aleatório do aparelho vão para o banco.
-O servidor devolve **"first" uma única vez por código**: a 2ª leitura, mesmo no mesmo celular, já mostra
-"JÁ VALIDADO" (o id do aparelho, em `localStorage`, só escolhe o texto: "você já validou" × "pode ser uma cópia").
-Vale para **todos** os códigos do registro (os 21.000 nossos). Os códigos do site antigo não estão mais no registro →
-mostram o alerta de falsificação.
+É tudo estático: **não há servidor, banco nem Redis**. A conferência é no navegador contra `registry/`.
 
 ### 📷 Scanner do site (`--strict-scan`)
 
@@ -63,36 +54,26 @@ por validado sem ler QR nenhum** — por isso "qualquer QR validava". Agora:
 
 - sem QR na câmera, ele só espera; QR sem relação (ex.: um site qualquer) → "Falha na verificação";
 - QR `.../go/<codigo>` (ou `/c/…/a/<codigo>`, ou o código puro) com código **fora do banco** → vai direto para o
-  **ALERTA DE FALSIFICAÇÃO**; abrir um link com código falso também (sem esperar a câmera);
-- a tela de transição diz "Etiqueta reconhecida / Conferindo se este código ainda pode ser validado" em vez de
-  "Produto Autêntico!" (a autenticidade só é afirmada na tela de resultado, depois da checagem de uso único).
+  **ALERTA DE FALSIFICAÇÃO**; abrir um link com código falso também (sem esperar a câmera).
 
-**Foto do produto:** na tela **REAL** a foto aparece sob o status (como no site original). Na **JÁ VALIDADO** e no
-**ALERTA DE FALSIFICAÇÃO** a foto da caixa aparece embaixo da mensagem (o código original só a montava no REAL). No alerta,
-como o código não está no banco e não há produto conhecido, mostra-se a caixa **original** do T.G. 15 mg com a legenda
-"Compare com a embalagem original" (PT/ENG/SPA), para a pessoa comparar com o que tem na mão.
+**Foto do produto:** na tela **REAL** a foto aparece sob o status (como no site original); no **ALERTA DE FALSIFICAÇÃO** a
+foto da caixa original do T.G. 15 mg aparece embaixo da mensagem, com a legenda "Compare com a embalagem original".
 
-**Configurar (uma vez):** Vercel → projeto → *Storage* → *Create Database* → **Upstash for Redis** (ou KV) →
-conectar ao projeto (cria `KV_REST_API_URL` / `KV_REST_API_TOKEN`) → *Redeploy*.
+### 🔁 Validação única — módulo OPCIONAL (desligado)
 
-**Testar sem Redis de verdade:** `FAKE_KV=1 node serve.js` (Redis falso em memória) e abrir
-<http://localhost:4173/vsq/?code=CODIGO>; para simular "outro aparelho", limpe o `localStorage`.
+Já existiu em produção (1ª leitura = REAL, depois "JÁ VALIDADO") e foi **desligado a pedido**: a etiqueta deve poder ser
+validada sempre; a única restrição é o código fora do banco. O código continua em `extras/single-use/` (função
+`claim.js` + Redis Upstash/KV com `SET … NX`, `dev-fake-kv.js` para testar local, `claim-admin.js` status/reset).
+Para religar: copie `claim.js` para `api/claim.js`, acrescente em `vercel.json`
+`"functions": {"api/claim.js": {"includeFiles": "site-integrado/registry/**"}}`, conecte um Redis e reconstrua com
+`--single-use` (no lugar de `--counterfeit-alert`). Teste local: `FAKE_KV=1 node serve.js`.
 
-**Suporte** (precisa das duas variáveis de ambiente do Redis):
-
-```bash
-node claim-admin.js status <codigo>   # já foi validado? quando?
-node claim-admin.js reset  <codigo>   # libera o código para validar de novo (testes / devolução)
-```
-
-**Testado** (`node verify-integrated.js`, 37 verificações): 21.000/21.000 códigos → `valid`/`indufar` no lote
-certo; registro com exatamente 21.000 códigos (o código antigo `3D9swb8YSe` → `unknown`); shards ordenados e sem chave repetida; 30.000 códigos
-inventados → 0 aceitos; regex nova extrai `/go/…`; a função `/api/claim` (contra o registro real, Redis falso):
-1ª vez → `first`, mesmo aparelho → `used` (`self`), outro aparelho → `used` + data, código fora do banco → `unknown`
-(sem gravar nada), entradas inválidas → 400, GET → 405, 25 aparelhos simultâneos → só 1 `first`, sem Redis →
-503. No navegador (PT/ENG/SPA), com **câmera simulada**: 7 s sem QR → continua esperando; QR de site qualquer →
-"Falha na verificação"; QR `/go/FAKECODE99` → "ALERTA DE FALSIFICAÇÃO"; QR válido → REAL com "T.G. 15 mg"; 2ª
-leitura → "JÁ VALIDADO" ("você já validou…"); outro aparelho → "JÁ VALIDADO … pode ser uma cópia".
+**Testado** (`node verify-integrated.js`, 25 verificações): 21.000/21.000 códigos → `valid`/`indufar` no lote
+certo; registro com exatamente 21.000 códigos (o código antigo `3D9swb8YSe` → `unknown`); shards ordenados e sem
+chave repetida; 30.000 códigos inventados → 0 aceitos; regex nova extrai `/go/…`; alerta nos 3 idiomas com a caixa
+original; nenhuma chamada a servidor e nenhum texto de "já validado". No navegador: o mesmo código → REAL nas duas
+vezes (inclusive "outro aparelho"); código do site antigo → ALERTA com a caixa; scanner com câmera simulada: sem QR →
+espera, QR de site qualquer → "Falha na verificação", QR `/go/FAKE…` → ALERTA.
 **Não testado:** a câmera de um celular de verdade e a tela do padrão de desenho com o código vindo do QR.
 
 **Rodar:** `node serve.js` → serve `site-integrado` (`SITE_DIR=site node serve.js` serve o original).
@@ -102,18 +83,18 @@ resultado direto: <http://localhost:4173/vsq/?code=OLcUpsOigg>.
 **Adicionar lotes futuros / trocar emissor** — o build é reprodutível a partir do `site/` original:
 
 ```bash
-node build-integrated.js --issuer-id indufar --issuer-json none --single-use --drop-color-text --strict-scan --only-new \
+node build-integrated.js --issuer-id indufar --issuer-json none --counterfeit-alert --drop-color-text --strict-scan --only-new \
   --batch "authnow.com.br-2026-09-09-13000=../entrega-authnow-qr/codigos-13000.csv" \
   --batch "authnow.com.br-2026-09-12-8000=../entrega-authnow-qr/codigos-8000-lote2.csv"
 node verify-integrated.js
 ```
-(`--issuer-json none` põe os lotes num emissor que já existe. Para criar um emissor novo, use
+(`--issuer-json none` põe os lotes num emissor que já existe; tire `--only-new` para **manter** também os 426.000 códigos
+do site antigo. Para criar um emissor novo, use
 `--issuer-id minhamarca --issuer-json '{"name":"MinhaMarca","product":"Nome","dose":"500 ml","showCode":true}'`;
 imagens/PDF vão em `site/` antes do build.) O `build-info.json` registra o que o último build fez e é lido pelo verificador.
 
-**Para as etiquetas impressas funcionarem**, o domínio `authnow.com.br` precisa servir `site-integrado/`
-**e** a função `api/claim.js` → **Vercel** (já configurado em `vercel.json`). Hospedagem puramente estática
-(IPFS, GitHub Pages…) continuaria mostrando REAL, mas **sem** a validação única.
+**Para as etiquetas impressas funcionarem**, o domínio `authnow.com.br` precisa apontar para este site (Vercel, já
+configurado em `vercel.json`; Cloudflare Pages/Netlify também servem, pois honram o `_redirects`).
 
 ### ⚠️ Limite de segurança do registro (importante antes de imprimir)
 
@@ -121,10 +102,9 @@ O registro guarda só **48 bits** do hash de cada código (1 byte do nome do sha
 verificação é apenas "essa chave existe?". Com 21.000 códigos, **1 em ~13 bilhões de strings quaisquer é
 aceita como `valid`**. Medido aqui: ~880 mil hashes/s numa thread de Node → ~4 h para achar um código
 "válido" (~20 min com os 12 cores deste notebook; segundos com GPU). Como o registro é público, qualquer
-pessoa pode fazer isso offline e imprimir um QR que passa na checagem. A validação única limita o estrago
-(cada código forjado só vale uma vez e o 1º uso fica registrado), mas **não impede** a forja. Saídas possíveis:
-aumentar a chave (12–16 bytes/registro; muda a função de busca e os shards) e/ou validar só no servidor
-(`api/claim.js` já tem o registro; bastaria parar de publicá-lo e conferir lá).
+pessoa pode fazer isso offline e imprimir um QR que passa na checagem — e, como o código vale sempre, esse QR forjado
+valeria para sempre. Saídas possíveis: aumentar a chave (12–16 bytes/registro; muda a função de busca e os shards)
+e/ou conferir só no servidor, sem publicar o registro (o módulo opcional `extras/single-use/claim.js` já sabe ler o registro).
 
 ## O que é
 
@@ -197,10 +177,9 @@ GitHub/CI, `gh auth status` em outros computadores, e os painéis de deploy
 | `site-integrado/` | Site + os 21.000 códigos AuthNow (publicar esta). |
 | `build-integrated.js` / `verify-integrated.js` | Geram e verificam o `site-integrado/` a partir do `site/`. |
 | `MANIFEST-integrado.sha256` | SHA-256 dos 324 arquivos do `site-integrado/`. |
-| `api/claim.js` | Vercel Function da validação única (`POST /api/claim/`). |
-| `dev-fake-kv.js` / `claim-admin.js` | Redis falso p/ teste local (`FAKE_KV=1 node serve.js`) / consulta e reset de um código. |
+| `extras/single-use/` | Módulo OPCIONAL (desligado): função de validação única `claim.js`, Redis falso `dev-fake-kv.js`, `claim-admin.js` (status/reset). |
 | `build-info.json` | O que o último `build-integrated.js` fez (lido por `verify-integrated.js`). |
-| `serve.js` | Servidor local sem dependências (serve o `site-integrado` e a `/api/claim`). |
+| `serve.js` | Servidor local sem dependências (serve o `site-integrado`; com `FAKE_KV=1` também o módulo opcional). |
 | `MANIFEST.sha256` | SHA-256 de cada arquivo de `site/` (para conferir integridade depois). |
 | `recover-from-ipfs.js` | Script que baixou tudo do gateway `eth.limo` (caminha pela árvore UnixFS via `?format=raw`). Refazer: `node recover-from-ipfs.js`. |
 | `verify-cid.mjs` | Recalcula o CID de uma pasta: `node verify-cid.mjs site-integrado` (precisa `npm i ipfs-unixfs-importer blockstore-core multiformats`). |

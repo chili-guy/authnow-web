@@ -3,15 +3,21 @@
   "framework": null,
   "outputDirectory": "site-integrado",
   "trailingSlash": true,
-  "functions": {
-    "api/claim.js": {
-      "includeFiles": "site-integrado/registry/**",
-      "maxDuration": 10
-    }
-  },
   "redirects": [
-    { "source": "/c/:issuer/a/:code", "destination": "/?code=:code", "statusCode": 302 },
-    { "source": "/go/:code", "destination": "/?code=:code", "statusCode": 302 },
-    { "source": "/validate-new-product", "destination": "/", "statusCode": 302 }
+    {
+      "source": "/c/:issuer/a/:code",
+      "destination": "/?code=:code",
+      "statusCode": 302
+    },
+    {
+      "source": "/go/:code",
+      "destination": "/?code=:code",
+      "statusCode": 302
+    },
+    {
+      "source": "/validate-new-product",
+      "destination": "/",
+      "statusCode": 302
+    }
   ]
 }

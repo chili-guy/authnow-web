@@ -139,18 +139,23 @@ const expected = INFO.changedNonRegistry.slice().sort();
 ok(JSON.stringify(others.slice().sort()) === JSON.stringify(expected), `exatamente os ${expected.length} arquivos não-registro esperados (build-info.json)`);
 
 
-console.log('6) Validação única + alerta de falsificação (chunk vsq)');
+console.log('6) Alerta de falsificação' + (INFO.singleUse ? ' + validação única' : ' (sem validação única: o código vale quantas vezes for preciso)') + ' (chunk vsq)');
 const orig = fs.readFileSync(path.join(ORIG, '_next/static/chunks/app/vsq', vsq), 'utf8');
 const has = (t) => src.includes(t);
-if (INFO.singleUse) {
+if (INFO.singleUse || INFO.counterfeitAlert) {
   try { new (require('vm').Script)(src); ok(true, 'chunk vsq continua JavaScript válido'); } catch (e) { ok(false, 'chunk vsq com erro de sintaxe: ' + e.message); }
-  ok(has('/api/claim/') && has('ANCLAIM(a)'), 'tela de resultado chama /api/claim/');
   // os textos ficam no chunk como escapes \uXXXX literais
   ok(has('ALERTA DE FALSIFICA\\u00c7\\u00c3O') && has('COUNTERFEIT ALERT') && has('ALERTA DE FALSIFICACI\\u00d3N'), 'alerta de falsificação nos 3 idiomas');
-  ok(has('J\\u00c1 VALIDADO') && has('ALREADY VALIDATED') && has('YA VALIDADO'), '"já validado" nos 3 idiomas');
-  ok(!orig.includes('/api/claim/'), 'o original não tinha chamada ao /api/claim/ (o patch é novo)');
-  ok(has('(o.image||"UNKNOWN"===(o.status||"").toUpperCase())&&(0,n.jsxs)("section",{className:m["product-panel"]') && has('Compare com a embalagem original') && has('Compare with the original packaging') && has('Compare con el empaque original'), '"JÁ VALIDADO" e alerta de falsificação mostram a foto da caixa embaixo (alerta com legenda "compare com a original" nos 3 idiomas)');
-} else ok(!has('/api/claim/'), 'build sem --single-use não chama /api/claim/');
+  ok(has('(o.image||"UNKNOWN"===(o.status||"").toUpperCase())&&(0,n.jsxs)("section",{className:m["product-panel"]') && has('Compare com a embalagem original') && has('Compare with the original packaging') && has('Compare con el empaque original'), 'alerta de falsificação mostra a foto da caixa original embaixo (legenda "compare com a original" nos 3 idiomas)');
+  if (INFO.singleUse) {
+    ok(has('/api/claim/') && has('ANCLAIM(a)'), 'tela de resultado chama /api/claim/');
+    ok(has('J\\u00c1 VALIDADO') && has('ALREADY VALIDATED') && has('YA VALIDADO'), '"já validado" nos 3 idiomas');
+    ok(!orig.includes('/api/claim/'), 'o original não tinha chamada ao /api/claim/ (o patch é novo)');
+  } else {
+    ok(!has('/api/claim/') && !has('ANCLAIM') && !has('ANCID'), 'a tela de resultado NÃO chama servidor nenhum (sem uso único)');
+    ok(!has('J\\u00c1 VALIDADO') && !has('ALREADY VALIDATED') && !has('YA VALIDADO'), 'nenhum texto de "já validado" no site: o código vale quantas vezes for preciso');
+  }
+} else ok(!has('/api/claim/'), 'build sem --counterfeit-alert nem --single-use não chama /api/claim/');
 if (INFO.dropColorText) {
   const colorRe = /c\\xf3digo e cor|code and color|y color con|both the code and the color|con el color/;
   ok(colorRe.test(orig) && !colorRe.test(src), 'textos não mencionam mais "cor" (PT/ENG/SPA)');
@@ -165,17 +170,26 @@ console.log('6b) Scanner estrito (chunk scan)');
     try { new (require('vm').Script)(sc); ok(true, 'chunk scan continua JavaScript válido'); } catch (e) { ok(false, 'chunk scan com erro: ' + e.message); }
     ok(so.includes('setTimeout(async()=>{a(await R(t))},4e3)') && !sc.includes('},4e3)'), 'atalho de 4 s que se auto-validava sem ler QR foi removido');
     ok(sc.includes('location.replace("/vsq/?code="') && sc.includes('location.assign("/vsq/?code="'), 'código fora do banco (link ou QR lido) vai para a tela de alerta');
-    ok(!sc.includes('Produto Aut\xeantico!'), 'transição não diz "Produto Autêntico!" antes da checagem de uso único');
+    // no chunk os acentos são escapes literais (\xea)
+    if (INFO.singleUse) ok(!sc.includes('Produto Aut\\xeantico!'), 'transição não diz "Produto Autêntico!" antes da checagem de uso único');
+    else ok(sc.includes('Produto Aut\\xeantico!'), 'sem uso único, a transição "Produto Autêntico!" original continua');
   } else ok(sc.includes('},4e3)'), 'build sem --strict-scan mantém o scanner original');
 }
 
+if (!INFO.singleUse) {
+  console.log('7) Sem validação única: não há função de servidor no deploy');
+  ok(!fs.existsSync(path.join(ROOT, 'api')), 'não existe a pasta api/ (nenhuma função serverless)');
+  ok(!/functions/.test(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8')), 'vercel.json sem "functions"');
+  console.log(failures ? `\n❌ ${failures} FALHA(S)` : '\n✅ TUDO CERTO');
+  process.exit(failures ? 1 : 0);
+}
 console.log('7) Função /api/claim contra o registro real (Redis falso)');
 (async () => {
-  const kv = require('./dev-fake-kv').start(4777);
+  const kv = require('./extras/single-use/dev-fake-kv').start(4777);
   process.env.KV_REST_API_URL = 'http://127.0.0.1:4777';
   process.env.KV_REST_API_TOKEN = 'fake-token';
   process.env.AN_REGISTRY_DIR = path.join(NEW, 'registry');
-  const claim = require('./api/claim.js');
+  const claim = require('./extras/single-use/claim.js');
   const call = (body, method = 'POST') => new Promise((resolve) => {
     const res = { code: 200, setHeader() {}, status(c) { this.code = c; return this; }, json(o) { resolve({ code: this.code, body: o }); } };
     claim({ method, body }, res);

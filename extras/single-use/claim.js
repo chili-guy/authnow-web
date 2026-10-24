@@ -1,4 +1,7 @@
-// Vercel Function — validação ÚNICA do código.
+// Vercel Function — validação ÚNICA do código.  (MÓDULO OPCIONAL: hoje o site NÃO usa — os códigos valem
+// quantas vezes for preciso. Para reativar: copie este arquivo para api/claim.js, adicione em vercel.json
+// "functions": {"api/claim.js": {"includeFiles": "site-integrado/registry/**"}}, conecte um Redis Upstash e
+// reconstrua o site com --single-use. Ver README.)
 //
 //   POST /api/claim/   { "code": "<codigo>", "cid": "<id do aparelho>" }
 //
@@ -28,7 +31,7 @@ function registryDir() {
   const candidates = [
     process.env.AN_REGISTRY_DIR,
     path.join(process.cwd(), 'site-integrado', 'registry'),
-    path.join(__dirname, '..', 'site-integrado', 'registry'),
+    path.join(__dirname, '..', '..', 'site-integrado', 'registry'),
   ].filter(Boolean);
   return candidates.find((p) => fs.existsSync(path.join(p, 'batches.json')));
 }

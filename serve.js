@@ -86,11 +86,11 @@ function send(res, status, file) {
 // ---- /api/claim: a MESMA função que roda na Vercel (validação única) ----
 //   FAKE_KV=1 node serve.js     -> sobe um Redis falso em memória (só para testar localmente)
 //   (ou defina KV_REST_API_URL / KV_REST_API_TOKEN para usar um Redis de verdade)
-const CLAIM_FILE = path.join(__dirname, 'api', 'claim.js');
+const CLAIM_FILE = path.join(__dirname, 'extras', 'single-use', 'claim.js'); // módulo OPCIONAL (só vale com build --single-use)
 process.env.AN_REGISTRY_DIR = process.env.AN_REGISTRY_DIR || path.join(ROOT, 'registry');
 if (process.env.FAKE_KV) {
   const port = Number(process.env.FAKE_KV_PORT) || 4199;
-  require('./dev-fake-kv').start(port);
+  require('./extras/single-use/dev-fake-kv').start(port);
   process.env.KV_REST_API_URL = `http://127.0.0.1:${port}`;
   process.env.KV_REST_API_TOKEN = 'fake-token';
   console.log(`Redis falso (em memória) em ${process.env.KV_REST_API_URL}`);
