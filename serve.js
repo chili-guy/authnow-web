@@ -10,7 +10,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, process.env.SITE_DIR || (fs.existsSync(path.join(__dirname, 'site-integrado')) ? 'site-integrado' : 'site'));
+const ROOT = path.resolve(__dirname, process.env.SITE_DIR || (fs.existsSync(path.join(__dirname, 'site-integrado')) ? 'site-integrado' : 'site'));
 const PORT = Number(process.env.PORT) || 4173;
 
 const MIME = {
@@ -83,9 +83,37 @@ function send(res, status, file) {
   fs.createReadStream(file).pipe(res);
 }
 
+// ---- /api/claim: a MESMA função que roda na Vercel (validação única) ----
+//   FAKE_KV=1 node serve.js     -> sobe um Redis falso em memória (só para testar localmente)
+//   (ou defina KV_REST_API_URL / KV_REST_API_TOKEN para usar um Redis de verdade)
+const CLAIM_FILE = path.join(__dirname, 'api', 'claim.js');
+process.env.AN_REGISTRY_DIR = process.env.AN_REGISTRY_DIR || path.join(ROOT, 'registry');
+if (process.env.FAKE_KV) {
+  const port = Number(process.env.FAKE_KV_PORT) || 4199;
+  require('./dev-fake-kv').start(port);
+  process.env.KV_REST_API_URL = `http://127.0.0.1:${port}`;
+  process.env.KV_REST_API_TOKEN = 'fake-token';
+  console.log(`Redis falso (em memória) em ${process.env.KV_REST_API_URL}`);
+}
+const claim = fs.existsSync(CLAIM_FILE) ? require(CLAIM_FILE) : null;
+
+function handleApi(req, res) {
+  let raw = '';
+  req.on('data', (c) => (raw += c));
+  req.on('end', () => {
+    let body = {};
+    try { body = raw ? JSON.parse(raw) : {}; } catch {}
+    req.body = body;
+    res.status = (code) => { res.statusCode = code; return res; };
+    res.json = (obj) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); };
+    claim(req, res);
+  });
+}
+
 http
   .createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    if (claim && /^\/api\/claim\/?$/.test(url.pathname)) return handleApi(req, res);
     let abs = resolveFile(url.pathname);
 
     if (abs && fs.statSync(abs).isDirectory()) {

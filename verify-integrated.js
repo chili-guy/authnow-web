@@ -12,6 +12,8 @@ const LOTES = [
   ['authnow.com.br-2026-09-12-8000', path.join(ROOT, '../entrega-authnow-qr/codigos-8000-lote2.csv')],
 ];
 
+const INFO = JSON.parse(fs.readFileSync(path.join(ROOT, 'build-info.json'), 'utf8'));
+const ISSUER = INFO.issuerId;
 let failures = 0;
 const ok = (c, msg) => { console.log((c ? '  ✅ ' : '  ❌ ') + msg); if (!c) failures++; };
 
@@ -46,9 +48,9 @@ let total = 0;
 for (const [id, csv] of LOTES) {
   const codes = fs.readFileSync(csv, 'utf8').trim().split(/\r?\n/).slice(1).map((l) => l.split(',')[0]);
   let good = 0;
-  for (const c of codes) { const r = look(c); if (r.verdict === 'valid' && r.issuer === 'authnow' && r.batch === id) good++; }
+  for (const c of codes) { const r = look(c); if (r.verdict === 'valid' && r.issuer === ISSUER && r.batch === id) good++; }
   total += codes.length;
-  ok(good === codes.length, `${id}: ${good}/${codes.length} válidos (emissor authnow)`);
+  ok(good === codes.length, `${id}: ${good}/${codes.length} válidos (emissor ${ISSUER})`);
 }
 
 console.log('2) Registro original preservado');
@@ -109,7 +111,67 @@ const shardsChanged = diff.filter((f) => f.startsWith('registry/units/')).length
 const others = diff.filter((f) => !f.startsWith('registry/units/'));
 console.log(`  arquivos diferentes do original: ${diff.length} (${shardsChanged} shards + ${others.length} outros)`);
 others.forEach((f) => console.log('     • ' + f));
-ok(others.length === 7, '7 arquivos não-registro alterados (batches.json, _redirects, 5 chunks)');
+const expected = INFO.changedNonRegistry.slice().sort();
+ok(JSON.stringify(others.slice().sort()) === JSON.stringify(expected), `exatamente os ${expected.length} arquivos não-registro esperados (build-info.json)`);
 
-console.log(failures ? `\n❌ ${failures} FALHA(S)` : '\n✅ TUDO CERTO');
-process.exit(failures ? 1 : 0);
+
+console.log('6) Validação única + alerta de falsificação (chunk vsq)');
+const orig = fs.readFileSync(path.join(ORIG, '_next/static/chunks/app/vsq', vsq), 'utf8');
+const has = (t) => src.includes(t);
+if (INFO.singleUse) {
+  try { new (require('vm').Script)(src); ok(true, 'chunk vsq continua JavaScript válido'); } catch (e) { ok(false, 'chunk vsq com erro de sintaxe: ' + e.message); }
+  ok(has('/api/claim/') && has('ANCLAIM(a)'), 'tela de resultado chama /api/claim/');
+  // os textos ficam no chunk como escapes \uXXXX literais
+  ok(has('ALERTA DE FALSIFICA\\u00c7\\u00c3O') && has('COUNTERFEIT ALERT') && has('ALERTA DE FALSIFICACI\\u00d3N'), 'alerta de falsificação nos 3 idiomas');
+  ok(has('J\\u00c1 VALIDADO') && has('ALREADY VALIDATED') && has('YA VALIDADO'), '"já validado" nos 3 idiomas');
+  ok(!orig.includes('/api/claim/'), 'o original não tinha chamada ao /api/claim/ (o patch é novo)');
+} else ok(!has('/api/claim/'), 'build sem --single-use não chama /api/claim/');
+if (INFO.dropColorText) {
+  const colorRe = /c\\xf3digo e cor|code and color|y color con|both the code and the color|con el color/;
+  ok(colorRe.test(orig) && !colorRe.test(src), 'textos não mencionam mais "cor" (PT/ENG/SPA)');
+}
+
+console.log('7) Função /api/claim contra o registro real (Redis falso)');
+(async () => {
+  const kv = require('./dev-fake-kv').start(4777);
+  process.env.KV_REST_API_URL = 'http://127.0.0.1:4777';
+  process.env.KV_REST_API_TOKEN = 'fake-token';
+  process.env.AN_REGISTRY_DIR = path.join(NEW, 'registry');
+  const claim = require('./api/claim.js');
+  const call = (body, method = 'POST') => new Promise((resolve) => {
+    const res = { code: 200, setHeader() {}, status(c) { this.code = c; return this; }, json(o) { resolve({ code: this.code, body: o }); } };
+    claim({ method, body }, res);
+  });
+  const codesOf = (i) => fs.readFileSync(LOTES[i][1], 'utf8').trim().split(/\r?\n/).slice(1).map((l) => l.split(',')[0]);
+  const [c1, c2, c3] = codesOf(0);
+  const d1 = codesOf(1)[0];
+  const A1 = 'a'.repeat(32), B1 = 'b'.repeat(32);
+
+  let r = await call({ code: c1, cid: A1 });
+  ok(r.code === 200 && r.body.result === 'first' && !!r.body.at, '1ª validação (aparelho A) → first');
+  const at1 = r.body.at;
+  r = await call({ code: c1, cid: A1 });
+  ok(r.body.result === 'first' && r.body.at === at1, 'mesmo aparelho reabrindo → continua first (mesma data)');
+  r = await call({ code: c1, cid: B1 });
+  ok(r.body.result === 'used' && r.body.at === at1, 'outro aparelho → used, com a data da 1ª validação');
+  r = await call({ code: 'CODIGOFALSO', cid: A1 });
+  ok(r.code === 200 && r.body.result === 'unknown', 'código fora do banco → unknown (alerta de falsificação)');
+  ok(![...kv.store.keys()].some((k) => k.includes('CODIGOFALSO')), 'código desconhecido não grava nada no Redis');
+  r = await call({ code: 'bad code!', cid: A1 }); ok(r.code === 400, 'código malformado → 400');
+  r = await call({ code: c1, cid: 'x' }); ok(r.code === 400, 'cid curto → 400');
+  r = await call({}, 'GET'); ok(r.code === 405, 'GET → 405');
+  r = await call({ code: '3D9swb8YSe', cid: A1 });
+  ok(r.body.result === 'first', 'código antigo Indufar 3D9swb8YSe também passa pela validação única');
+  const par = await Promise.all(Array.from({ length: 25 }, (_, i) => call({ code: d1, cid: String(i).padStart(2, '0').repeat(10) })));
+  ok(par.filter((p) => p.body.result === 'first').length === 1, '25 aparelhos ao mesmo tempo no mesmo código → só 1 recebe first');
+  const keys = [...kv.store.keys()];
+  ok(keys.every((k) => /^claim:[0-9a-f]{64}$/.test(k)) && !keys.some((k) => k.includes(c1)), 'Redis guarda só o hash do código (nunca o código em claro)');
+
+  delete process.env.KV_REST_API_URL; delete process.env.KV_REST_API_TOKEN;
+  r = await call({ code: c3, cid: A1 });
+  ok(r.code === 503 && r.body.error === 'not_configured', 'sem Redis configurado → 503 not_configured (falha fechada)');
+  kv.server.close();
+
+  console.log(failures ? `\n❌ ${failures} FALHA(S)` : '\n✅ TUDO CERTO');
+  process.exit(failures ? 1 : 0);
+})();

@@ -26,6 +26,7 @@ function args() {
   const o = { batch: [] };
   for (let i = 0; i < a.length; i += 2) {
     const k = a[i].replace(/^--/, '');
+    if (k === 'single-use' || k === 'drop-color-text') { o[k] = true; i -= 1; continue; }
     if (k === 'batch') o.batch.push(a[i + 1]);
     else o[k] = a[i + 1];
   }
@@ -35,10 +36,15 @@ const A = args();
 const SRC = path.resolve(__dirname, A.src || 'site');
 const OUT = path.resolve(__dirname, A.out || 'site-integrado');
 const ISSUER_ID = A['issuer-id'] || 'authnow';
+// --issuer-json none  → não cria emissor novo: os lotes entram num emissor que JÁ existe
+// (ex.: --issuer-id indufar --issuer-json none) e herdam foto, dose, links e PDF dele.
+const SKIP_ISSUER_PATCH = A['issuer-json'] === 'none';
 const ISSUER_JSON = A['issuer-json'] || '{"name":"AuthNow","product":"AuthNow","showCode":true}';
 if (!A.batch.length) throw new Error('informe ao menos um --batch "<id>=<csv>"');
-if (/['\\]/.test(ISSUER_JSON)) throw new Error('--issuer-json não pode conter aspas simples nem barras invertidas');
-JSON.parse(ISSUER_JSON);
+if (!SKIP_ISSUER_PATCH) {
+  if (/['\\]/.test(ISSUER_JSON)) throw new Error('--issuer-json não pode conter aspas simples nem barras invertidas');
+  JSON.parse(ISSUER_JSON);
+}
 
 const sha = (code) => crypto.createHash('sha256').update('authnow:' + code).digest();
 const shardName = (i) => i.toString(16).padStart(2, '0') + '.bin';
@@ -119,7 +125,9 @@ const find1 = (re) => fs.readdirSync(path.join(OUT, chunkDir), { recursive: true
 // 3a. emissor "authnow" no mapa embutido (3 chunks)
 const ISSUER_FIND = `'{"k":{"indufar":`;
 const ISSUER_REPL = `'{"k":{"${ISSUER_ID}":${ISSUER_JSON},"indufar":`;
-const issuerFiles = [...find1(/^140-.*\.js$/), ...find1(/^app\/page-.*\.js$/), ...find1(/^app\/vsq\/page-.*\.js$/)];
+const issuerFiles = SKIP_ISSUER_PATCH
+  ? []
+  : [...find1(/^140-.*\.js$/), ...find1(/^app\/page-.*\.js$/), ...find1(/^app\/vsq\/page-.*\.js$/)];
 for (const f of issuerFiles) patchFile(`${chunkDir}/${f}`, ISSUER_FIND, ISSUER_REPL, 1);
 
 // 3b. leitor de QR aceita /go/<codigo> além de /c/<emissor>/a/<codigo>
@@ -127,6 +135,57 @@ const RE_FIND = String.raw`/\/c\/[^/]+\/a\/([^/?#]+)/i`;
 const RE_REPL = String.raw`/\/(?:c\/[^/]+\/a|go)\/([^/?#]+)/i`;
 const parserFiles = [...find1(/^app\/scan\/page-.*\.js$/), ...find1(/^app\/vsq\/page-.*\.js$/), ...find1(/^app\/not-found-.*\.js$/)];
 for (const f of parserFiles) patchFile(`${chunkDir}/${f}`, RE_FIND, RE_REPL, 1);
+
+
+// 3c. VALIDAÇÃO ÚNICA (--single-use): a tela de resultado chama /api/claim/ (api/claim.js).
+//     1ª validação → REAL | já validada por outro aparelho → "JÁ VALIDADO" (+ data) |
+//     código fora do banco → "ALERTA DE FALSIFICAÇÃO". Falha do servidor → tela de erro (falha fechada).
+const vsqFile = find1(/^app\/vsq\/page-.*\.js$/)[0];
+const uni = (o) => JSON.stringify(o).replace(/[\u0080-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+const ANX = {
+  POR: {
+    UNKNOWN: { label: 'ALERTA DE FALSIFICAÇÃO', msg: 'Este código não consta no banco de dados da AuthNow. O produto pode ser FALSIFICADO. Não utilize e informe o fabricante.' },
+    USED: { label: 'JÁ VALIDADO', msg: 'Este produto já foi validado em {d}. Cada código só pode ser validado uma vez. Se não foi você, o produto pode ser uma cópia — não utilize e informe o fabricante.', msg0: 'Este produto já foi validado anteriormente. Cada código só pode ser validado uma vez. Se não foi você, o produto pode ser uma cópia — não utilize e informe o fabricante.' },
+  },
+  ENG: {
+    UNKNOWN: { label: 'COUNTERFEIT ALERT', msg: 'This code is not in the AuthNow database. This product may be COUNTERFEIT. Do not use it and notify the manufacturer.' },
+    USED: { label: 'ALREADY VALIDATED', msg: 'This product was already validated on {d}. Each code can only be validated once. If it was not you, the product may be a copy — do not use it and notify the manufacturer.', msg0: 'This product was already validated before. Each code can only be validated once. If it was not you, the product may be a copy — do not use it and notify the manufacturer.' },
+  },
+  SPA: {
+    UNKNOWN: { label: 'ALERTA DE FALSIFICACIÓN', msg: 'Este código no consta en la base de datos de AuthNow. El producto puede ser FALSIFICADO. No lo utilice e informe al fabricante.' },
+    USED: { label: 'YA VALIDADO', msg: 'Este producto ya fue validado el {d}. Cada código solo puede validarse una vez. Si no fue usted, el producto puede ser una copia: no lo utilice e informe al fabricante.', msg0: 'Este producto ya fue validado antes. Cada código solo puede validarse una vez. Si no fue usted, el producto puede ser una copia: no lo utilice e informe al fabricante.' },
+  },
+};
+const HELPERS =
+  'var ANX=' + uni(ANX) + ';' +
+  'function ANMSG(j,o){var x=ANX[j]||ANX.POR,m=x[(o.status||"").toUpperCase()];if(!m)return null;var d="";if(o.firstAt){try{d=new Date(o.firstAt).toLocaleString(s[j]||"pt-BR")}catch(e){}}return{label:m.label,msg:d?m.msg.replace("{d}",d):(m.msg0||m.msg)}}' +
+  'function ANCID(c){var k="an_cid:"+c,v=null;try{v=localStorage.getItem(k)}catch(e){}if(!v){var b=new Uint8Array(16);crypto.getRandomValues(b);v=Array.prototype.map.call(b,function(x){return("0"+x.toString(16)).slice(-2)}).join("");try{localStorage.setItem(k,v)}catch(e){}}return v}' +
+  'async function ANCLAIM(c){var r=await fetch("/api/claim/",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({code:c,cid:ANCID(c)})});if(!r.ok)throw Error("claim: HTTP "+r.status);return r.json()}';
+if (A['single-use']) {
+  const F = chunkDir + '/' + vsqFile;
+  patchFile(F, 'var w=t(4572),f=t(1067);function b(){', 'var w=t(4572),f=t(1067);' + HELPERS + 'function b(){', 1);
+  patchFile(F, 'children:y?N.real:N.notVerified', 'children:y?N.real:(ANMSG(j,o)||{}).label||N.notVerified', 1);
+  patchFile(F, 'children:N.invalidMessage', 'children:(ANMSG(j,o)||{}).msg||N.invalidMessage', 1);
+  patchFile(F, '(0,f.Pw)(a).then(a=>e&&c(a),()=>e&&c("error"))',
+    '(0,f.Pw)(a).then(r=>"valid"!==r.verdict?r:ANCLAIM(a).then(k=>"first"===k.result?r:{verdict:k.result,issuer:r.issuer,firstAt:k.at})).then(a=>e&&c(a),()=>e&&c("error"))', 1);
+  patchFile(F, 'product:(0,u.tv)(t.issuer,a,"valid"===t.verdict?"REAL":t.verdict.toUpperCase())',
+    'product:Object.assign((0,u.tv)(t.issuer,a,"valid"===t.verdict?"REAL":t.verdict.toUpperCase()),{firstAt:t.firstAt})', 1);
+}
+
+// 3d. --drop-color-text: as etiquetas AuthNow não têm cor; tira "e cor" dos textos (3 idiomas)
+if (A['drop-color-text']) {
+  const F = chunkDir + '/' + vsqFile;
+  // no código minificado os acentos aparecem como escapes literais (\xf3 etc.)
+  const pairs = [
+    ['corresponder em c\\xf3digo e cor ao que est\\xe1 impresso no r\\xf3tulo', 'corresponder ao c\\xf3digo que est\\xe1 impresso no r\\xf3tulo'],
+    ['corresponder tanto ao c\\xf3digo quanto \\xe0 cor impressos na etiqueta do produto:', 'corresponder ao c\\xf3digo impresso na etiqueta do produto:'],
+    ['must match the code and color printed on the product label', 'must match the code printed on the product label'],
+    ['must match both the code and the color printed on the product label:', 'must match the code printed on the product label:'],
+    ['debe coincidir en c\\xf3digo y color con el impreso en la etiqueta', 'debe coincidir con el c\\xf3digo impreso en la etiqueta'],
+    ['debe coincidir tanto con el c\\xf3digo como con el color impresos en la etiqueta del producto:', 'debe coincidir con el c\\xf3digo impreso en la etiqueta del producto:'],
+  ];
+  for (const [a, b] of pairs) patchFile(F, a, b, 1);
+}
 
 // ---------- 4. _redirects ----------
 const rp = path.join(OUT, '_redirects');
@@ -147,5 +206,14 @@ console.log(JSON.stringify({
   chunksComEmissor: issuerFiles,
   chunksComParser: parserFiles,
   shardsAlterados: touched.size,
+}, null, 2));
+const changed = [...new Set([
+  'registry/batches.json', '_redirects',
+  ...issuerFiles, ...parserFiles,
+])].map((f) => (f.startsWith('registry') || f === '_redirects' ? f : chunkDir + '/' + f)).sort();
+fs.writeFileSync(path.join(__dirname, 'build-info.json'), JSON.stringify({
+  out: path.basename(OUT), issuerId: ISSUER_ID, newIssuer: !SKIP_ISSUER_PATCH,
+  singleUse: !!A['single-use'], dropColorText: !!A['drop-color-text'],
+  batches: report.batches.map((b) => ({ id: b.id, csv: b.csv })), changedNonRegistry: changed,
 }, null, 2));
 if (report.collisions.length) process.exitCode = 2;

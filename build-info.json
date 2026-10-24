@@ -1,0 +1,24 @@
+{
+  "out": "site-integrado",
+  "issuerId": "indufar",
+  "newIssuer": false,
+  "singleUse": true,
+  "dropColorText": true,
+  "batches": [
+    {
+      "id": "authnow.com.br-2026-09-09-13000",
+      "csv": "codigos-13000.csv"
+    },
+    {
+      "id": "authnow.com.br-2026-09-12-8000",
+      "csv": "codigos-8000-lote2.csv"
+    }
+  ],
+  "changedNonRegistry": [
+    "_next/static/chunks/app/not-found-bfe745c5a7c85cc2.js",
+    "_next/static/chunks/app/scan/page-7de075e0f22e237a.js",
+    "_next/static/chunks/app/vsq/page-480b360d938f179b.js",
+    "_redirects",
+    "registry/batches.json"
+  ]
+}

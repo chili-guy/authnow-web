@@ -19,46 +19,82 @@ Cópia completa do site publicado em **`https://app-authnow.eth.limo/`**
 | | |
 | --- | --- |
 | Códigos registrados | **21.000** — lote 1 (13.000, `codigos-13000.csv`) + lote 2 (8.000, `codigos-8000-lote2.csv`) |
-| Registro | 426.000 → **447.000** unidades; lotes novos em `batches.json`: `authnow.com.br-2026-09-09-13000` e `authnow.com.br-2026-09-12-8000` (emissor `authnow`) |
-| **CID para publicar** | `bafybeib2fbjbf6mujcs6vqlm4o7to7lmpwrb2ah35ezhuvnp5pwudlii6u` |
+| Registro | 426.000 → **447.000** unidades; lotes novos em `batches.json`: `authnow.com.br-2026-09-09-13000` e `authnow.com.br-2026-09-12-8000` (**emissor `indufar`** → foto, "T.G. 15 mg", links e PDF do medicamento) |
+| **CID para publicar** | `bafybeibmwroiqlh45tedfkm4sbyz4ltvzubwk3irli4zj4xdoxdgvecbbu` (só do conteúdo estático; a função `api/claim.js` só existe na Vercel) |
 | Integridade | `MANIFEST-integrado.sha256` (324 arquivos) |
 
-**O que mudou em relação ao original** (263 arquivos; o resto é byte a byte igual):
+**O que mudou em relação ao original** (261 arquivos; o resto é byte a byte igual):
 
 1. `registry/units/*.bin` — os 256 shards ganharam os 21.000 registros novos (ordenados; os 426.000 antigos intactos).
-2. `registry/batches.json` — +2 lotes, emissor `authnow`.
-3. **Emissor `authnow`** no mapa embutido nos chunks `140-*.js`, `app/page-*.js`, `app/vsq/page-*.js`
-   (sem ele a tela de resultado ficaria sem título). Hoje: nome/produto "AuthNow", sem imagem nem links.
-4. **Leitor de QR** (`app/scan`, `app/vsq`, `app/not-found`): a regex que extrai o código agora aceita
+2. `registry/batches.json` — +2 lotes, emissor `indufar`.
+3. **Leitor de QR** (`app/scan`, `app/vsq`, `app/not-found`): a regex que extrai o código agora aceita
    `.../go/<codigo>` além de `/c/<emissor>/a/<codigo>`. **Sem isso o scanner do site rejeitaria as 21.000
    etiquetas já geradas** (`https://authnow.com.br/go/<codigo>`).
-5. `_redirects` — `/go/:code → /?code=:code` (302), igual à regra `/c/…` que já existia.
+4. `_redirects` — `/go/:code → /?code=:code` (302), igual à regra `/c/…` que já existia.
+5. **Validação única + alerta de falsificação** (`--single-use`, só em `app/vsq`) — ver seção abaixo.
+6. **Textos sem "e cor"** (`--drop-color-text`): as etiquetas AuthNow não têm cor; as frases "código e cor" /
+   "code and color" / "código y color" agora dizem só "código" (PT/ENG/SPA).
 
-**Testado** (`node verify-integrated.js`): 21.000/21.000 códigos → `valid`/`authnow` no lote certo; nenhum dos
-426.000 registros antigos perdido; shards ordenados e sem chave repetida; código antigo `3D9swb8YSe` continua
-`valid`/`indufar`; 30.000 códigos inventados → 0 aceitos; regex nova extrai `/go/…` e mantém `/c/…/a/…`. No
-navegador: nossos códigos → **REAL**; código da Indufar → "T.G. 15 mg" como antes; código falso → **NÃO VERIFICADO**.
-Não testado: o scanner por câmera (precisa de celular) e a tela do padrão de desenho com o código vindo do QR.
+### 🔒 Validação única (código usado uma vez) e alerta de falsificação
+
+| Situação | O que a pessoa vê (PT / ENG / SPA) |
+| --- | --- |
+| 1ª validação do código | **REAL** + foto/nome do produto (como antes) |
+| Código já validado antes (outro aparelho) | **JÁ VALIDADO** / **ALREADY VALIDATED** / **YA VALIDADO** + "foi validado em *data/hora*" |
+| Código que **não está no banco** | **ALERTA DE FALSIFICAÇÃO** / **COUNTERFEIT ALERT** / **ALERTA DE FALSIFICACIÓN** |
+| Código revogado/recall | tela que o site já tinha |
+| Servidor de validação fora do ar / sem Redis | "Não foi possível verificar" (**falha fechada**: nunca diz REAL sem conseguir registrar o uso) |
+
+Como funciona: a tela de resultado chama `POST /api/claim/` (`api/claim.js`, Vercel Function). A função
+confere o código no registro (`site-integrado/registry`, empacotado via `includeFiles`) e grava a "marca de uso"
+num Redis REST (Upstash / Vercel KV) com `SET … NX` — **atômico**: dois aparelhos ao mesmo tempo nunca recebem
+"REAL" os dois. Só o **hash** do código e o hash de um id aleatório do aparelho vão para o banco.
+O aparelho que validou primeiro continua vendo REAL ao reabrir (o id fica no `localStorage`); **outro** aparelho
+(ou o mesmo com dados do navegador limpos) vê "JÁ VALIDADO". Vale para **todos** os códigos do registro
+(inclusive os 426.000 antigos da Indufar/PureLabs).
+
+**Configurar (uma vez):** Vercel → projeto → *Storage* → *Create Database* → **Upstash for Redis** (ou KV) →
+conectar ao projeto (cria `KV_REST_API_URL` / `KV_REST_API_TOKEN`) → *Redeploy*.
+
+**Testar sem Redis de verdade:** `FAKE_KV=1 node serve.js` (Redis falso em memória) e abrir
+<http://localhost:4173/vsq/?code=CODIGO>; para simular "outro aparelho", limpe o `localStorage`.
+
+**Suporte** (precisa das duas variáveis de ambiente do Redis):
+
+```bash
+node claim-admin.js status <codigo>   # já foi validado? quando?
+node claim-admin.js reset  <codigo>   # libera o código para validar de novo (testes / devolução)
+```
+
+**Testado** (`node verify-integrated.js`, 31 verificações): 21.000/21.000 códigos → `valid`/`indufar` no lote
+certo; nenhum dos 426.000 registros antigos perdido; shards ordenados e sem chave repetida; 30.000 códigos
+inventados → 0 aceitos; regex nova extrai `/go/…`; a função `/api/claim` (contra o registro real, Redis falso):
+1ª vez → `first`, mesmo aparelho → `first`, outro aparelho → `used` + data, código fora do banco → `unknown`
+(sem gravar nada), entradas inválidas → 400, GET → 405, 25 aparelhos simultâneos → só 1 `first`, sem Redis →
+503. No navegador (PT/ENG/SPA): REAL com "T.G. 15 mg" → outro aparelho "JÁ VALIDADO" com data → código falso
+"ALERTA DE FALSIFICAÇÃO".
+**Não testado:** a Vercel de verdade com Redis real, o scanner por câmera e a tela do padrão de desenho com o
+código vindo do QR (precisam de celular/produção).
 
 **Rodar:** `node serve.js` → serve `site-integrado` (`SITE_DIR=site node serve.js` serve o original).
 Teste: <http://localhost:4173/go/OLcUpsOigg> → redireciona para `/?code=OLcUpsOigg`;
 resultado direto: <http://localhost:4173/vsq/?code=OLcUpsOigg>.
 
-**Trocar nome/imagem/links do produto** (hoje placeholder "AuthNow") e **adicionar lotes futuros** — o build é
-reprodutível a partir do `site/` original:
+**Adicionar lotes futuros / trocar emissor** — o build é reprodutível a partir do `site/` original:
 
 ```bash
-node build-integrated.js \
+node build-integrated.js --issuer-id indufar --issuer-json none --single-use --drop-color-text \
   --batch "authnow.com.br-2026-09-09-13000=../entrega-authnow-qr/codigos-13000.csv" \
-  --batch "authnow.com.br-2026-09-12-8000=../entrega-authnow-qr/codigos-8000-lote2.csv" \
-  --issuer-json '{"name":"MinhaMarca","product":"Nome do Produto","dose":"500 ml","site":"https://exemplo.com","showCode":true}'
+  --batch "authnow.com.br-2026-09-12-8000=../entrega-authnow-qr/codigos-8000-lote2.csv"
 node verify-integrated.js
 ```
-(imagens/PDF do produto vão em `site/` antes do build e entram no JSON como `"image":"/caminho.webp"`, `"certPdf":"/x.pdf"`.)
+(`--issuer-json none` põe os lotes num emissor que já existe. Para criar um emissor novo, use
+`--issuer-id minhamarca --issuer-json '{"name":"MinhaMarca","product":"Nome","dose":"500 ml","showCode":true}'`;
+imagens/PDF vão em `site/` antes do build.) O `build-info.json` registra o que o último build fez e é lido pelo verificador.
 
-**Para as etiquetas impressas funcionarem aqui**, o domínio `authnow.com.br` precisa servir `site-integrado/`:
-Cloudflare Pages ou Netlify (honram o `_redirects`), ou IPFS + DNSLink apontando para o CID acima.
-GitHub Pages **não** lê `_redirects` (a rota `/go/…` não redirecionaria).
+**Para as etiquetas impressas funcionarem**, o domínio `authnow.com.br` precisa servir `site-integrado/`
+**e** a função `api/claim.js` → **Vercel** (já configurado em `vercel.json`). Hospedagem puramente estática
+(IPFS, GitHub Pages…) continuaria mostrando REAL, mas **sem** a validação única.
 
 ### ⚠️ Limite de segurança do registro (importante antes de imprimir)
 
@@ -123,7 +159,7 @@ suba o conteúdo de `site/` na raiz.
 - Netlify e Cloudflare Pages honram o `_redirects` (o QR funciona sem ajuste).
 - GitHub Pages **não** lê `_redirects` → a rota `/c/:issuer/a/:code` precisaria de um
   `404.html` com JS que converta o caminho em `/?code=…`.
-- Vercel: traduza as 2 regras para `vercel.json` (`redirects`).
+- Vercel: já traduzido em `vercel.json` (`redirects`).
 
 ## O que NÃO foi possível recuperar
 
@@ -142,7 +178,10 @@ GitHub/CI, `gh auth status` em outros computadores, e os painéis de deploy
 | `site-integrado/` | Site + os 21.000 códigos AuthNow (publicar esta). |
 | `build-integrated.js` / `verify-integrated.js` | Geram e verificam o `site-integrado/` a partir do `site/`. |
 | `MANIFEST-integrado.sha256` | SHA-256 dos 324 arquivos do `site-integrado/`. |
-| `serve.js` | Servidor local sem dependências (serve o `site-integrado`). |
+| `api/claim.js` | Vercel Function da validação única (`POST /api/claim/`). |
+| `dev-fake-kv.js` / `claim-admin.js` | Redis falso p/ teste local (`FAKE_KV=1 node serve.js`) / consulta e reset de um código. |
+| `build-info.json` | O que o último `build-integrated.js` fez (lido por `verify-integrated.js`). |
+| `serve.js` | Servidor local sem dependências (serve o `site-integrado` e a `/api/claim`). |
 | `MANIFEST.sha256` | SHA-256 de cada arquivo de `site/` (para conferir integridade depois). |
 | `recover-from-ipfs.js` | Script que baixou tudo do gateway `eth.limo` (caminha pela árvore UnixFS via `?format=raw`). Refazer: `node recover-from-ipfs.js`. |
 | `verify-cid.mjs` | Recalcula o CID de uma pasta: `node verify-cid.mjs site-integrado` (precisa `npm i ipfs-unixfs-importer blockstore-core multiformats`). |
