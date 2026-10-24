@@ -151,16 +151,19 @@ const vsqFile = find1(/^app\/vsq\/page-.*\.js$/)[0];
 const uni = (o) => JSON.stringify(o).replace(/[\u0080-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 const ANX = {
   POR: {
+    CMP: 'Compare com a embalagem original:',
     UNKNOWN: { label: 'ALERTA DE FALSIFICAÇÃO', msg: 'Este código não consta no banco de dados da AuthNow. O produto pode ser FALSIFICADO. Não utilize e informe o fabricante.' },
     USED: { label: 'JÁ VALIDADO', msg: 'Este produto já foi validado em {d}. Cada código só pode ser validado uma vez. Se não foi você, o produto pode ser uma cópia — não utilize e informe o fabricante.', msg0: 'Este produto já foi validado anteriormente. Cada código só pode ser validado uma vez. Se não foi você, o produto pode ser uma cópia — não utilize e informe o fabricante.' },
     SELF: { label: 'JÁ VALIDADO', msg: 'Você já validou este produto em {d}. Cada código só pode ser validado uma vez.', msg0: 'Você já validou este produto anteriormente. Cada código só pode ser validado uma vez.' },
   },
   ENG: {
+    CMP: 'Compare with the original packaging:',
     UNKNOWN: { label: 'COUNTERFEIT ALERT', msg: 'This code is not in the AuthNow database. This product may be COUNTERFEIT. Do not use it and notify the manufacturer.' },
     USED: { label: 'ALREADY VALIDATED', msg: 'This product was already validated on {d}. Each code can only be validated once. If it was not you, the product may be a copy — do not use it and notify the manufacturer.', msg0: 'This product was already validated before. Each code can only be validated once. If it was not you, the product may be a copy — do not use it and notify the manufacturer.' },
     SELF: { label: 'ALREADY VALIDATED', msg: 'You already validated this product on {d}. Each code can only be validated once.', msg0: 'You already validated this product before. Each code can only be validated once.' },
   },
   SPA: {
+    CMP: 'Compare con el empaque original:',
     UNKNOWN: { label: 'ALERTA DE FALSIFICACIÓN', msg: 'Este código no consta en la base de datos de AuthNow. El producto puede ser FALSIFICADO. No lo utilice e informe al fabricante.' },
     USED: { label: 'YA VALIDADO', msg: 'Este producto ya fue validado el {d}. Cada código solo puede validarse una vez. Si no fue usted, el producto puede ser una copia: no lo utilice e informe al fabricante.', msg0: 'Este producto ya fue validado antes. Cada código solo puede validarse una vez. Si no fue usted, el producto puede ser una copia: no lo utilice e informe al fabricante.' },
     SELF: { label: 'YA VALIDADO', msg: 'Usted ya validó este producto el {d}. Cada código solo puede validarse una vez.', msg0: 'Usted ya validó este producto antes. Cada código solo puede validarse una vez.' },
@@ -175,10 +178,10 @@ if (A['single-use']) {
   const F = chunkDir + '/' + vsqFile;
   patchFile(F, 'var w=t(4572),f=t(1067);function b(){', 'var w=t(4572),f=t(1067);' + HELPERS + 'function b(){', 1);
   patchFile(F, 'children:y?N.real:N.notVerified', 'children:y?N.real:(ANMSG(j,o)||{}).label||N.notVerified', 1);
-  // mensagem do estado não-REAL + (se o produto é conhecido, ex.: "JÁ VALIDADO") a foto do produto embaixo.
-  // Código fora do banco não tem emissor → o.image é null → só o alerta, sem foto.
+  // mensagem do estado não-REAL + a foto da caixa embaixo: produto conhecido ("JÁ VALIDADO") mostra a do emissor;
+  // código fora do banco (alerta de falsificação) mostra a caixa ORIGINAL do T.G. 15 mg com a legenda "compare com a embalagem original".
   patchFile(F, '(0,n.jsx)("p",{className:m["invalid-message"],children:N.invalidMessage})',
-    '(0,n.jsxs)(n.Fragment,{children:[(0,n.jsx)("p",{className:m["invalid-message"],children:(ANMSG(j,o)||{}).msg||N.invalidMessage}),o.image&&(0,n.jsx)("section",{className:m["product-panel"],children:(0,n.jsx)("img",{className:m["product-image"],src:o.image,alt:o.name,onError:h(d.UF)})})]})', 1);
+    '(0,n.jsxs)(n.Fragment,{children:[(0,n.jsx)("p",{className:m["invalid-message"],children:(ANMSG(j,o)||{}).msg||N.invalidMessage}),(o.image||"UNKNOWN"===(o.status||"").toUpperCase())&&(0,n.jsxs)("section",{className:m["product-panel"],children:["UNKNOWN"===(o.status||"").toUpperCase()&&(0,n.jsx)("p",{className:m.description,children:(ANX[j]||ANX.POR).CMP}),(0,n.jsx)("img",{className:m["product-image"],src:o.image||d.UF,alt:o.name||"T.G. 15 mg",onError:h(d.UF)})]})]})', 1);
   patchFile(F, '(0,f.Pw)(a).then(a=>e&&c(a),()=>e&&c("error"))',
     '(0,f.Pw)(a).then(r=>"valid"!==r.verdict?r:ANCLAIM(a).then(k=>"first"===k.result?r:{verdict:k.result,issuer:r.issuer,firstAt:k.at,self:k.self})).then(a=>e&&c(a),()=>e&&c("error"))', 1);
   patchFile(F, 'product:(0,u.tv)(t.issuer,a,"valid"===t.verdict?"REAL":t.verdict.toUpperCase())',

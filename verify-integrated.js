@@ -149,7 +149,7 @@ if (INFO.singleUse) {
   ok(has('ALERTA DE FALSIFICA\\u00c7\\u00c3O') && has('COUNTERFEIT ALERT') && has('ALERTA DE FALSIFICACI\\u00d3N'), 'alerta de falsificação nos 3 idiomas');
   ok(has('J\\u00c1 VALIDADO') && has('ALREADY VALIDATED') && has('YA VALIDADO'), '"já validado" nos 3 idiomas');
   ok(!orig.includes('/api/claim/'), 'o original não tinha chamada ao /api/claim/ (o patch é novo)');
-  ok(has('o.image&&(0,n.jsx)("section",{className:m["product-panel"],children:(0,n.jsx)("img",{className:m["product-image"]'), 'estado "JÁ VALIDADO" mostra a foto do produto embaixo da mensagem');
+  ok(has('(o.image||"UNKNOWN"===(o.status||"").toUpperCase())&&(0,n.jsxs)("section",{className:m["product-panel"]') && has('Compare com a embalagem original') && has('Compare with the original packaging') && has('Compare con el empaque original'), '"JÁ VALIDADO" e alerta de falsificação mostram a foto da caixa embaixo (alerta com legenda "compare com a original" nos 3 idiomas)');
 } else ok(!has('/api/claim/'), 'build sem --single-use não chama /api/claim/');
 if (INFO.dropColorText) {
   const colorRe = /c\\xf3digo e cor|code and color|y color con|both the code and the color|con el color/;

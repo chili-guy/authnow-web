@@ -20,7 +20,7 @@ Cópia completa do site publicado em **`https://app-authnow.eth.limo/`**
 | --- | --- |
 | Códigos registrados | **21.000** — lote 1 (13.000, `codigos-13000.csv`) + lote 2 (8.000, `codigos-8000-lote2.csv`) |
 | Registro | **só os nossos 21.000** (`--only-new`: os 426.000 códigos do site antigo — Indufar/PureLabs — **saíram** e agora caem no ALERTA DE FALSIFICAÇÃO); lotes em `batches.json`: `authnow.com.br-2026-09-09-13000` e `authnow.com.br-2026-09-12-8000` (**emissor `indufar`** → foto, "T.G. 15 mg", links e PDF do medicamento) |
-| **CID para publicar** | `bafybeiea5jmbo6lonpo5lbyybx4nstb3rxul6t2gt6jdq7xpwowibq2jua` (só do conteúdo estático; a função `api/claim.js` só existe na Vercel) |
+| **CID para publicar** | `bafybeidwh2uavc2p6xtavr25c5zw57y6vneyhipfhdbd4kktzcl3u5n7ru` (só do conteúdo estático; a função `api/claim.js` só existe na Vercel) |
 | Integridade | `MANIFEST-integrado.sha256` (324 arquivos) |
 
 **O que mudou em relação ao original** (261 arquivos; o resto é byte a byte igual):
@@ -67,9 +67,10 @@ por validado sem ler QR nenhum** — por isso "qualquer QR validava". Agora:
 - a tela de transição diz "Etiqueta reconhecida / Conferindo se este código ainda pode ser validado" em vez de
   "Produto Autêntico!" (a autenticidade só é afirmada na tela de resultado, depois da checagem de uso único).
 
-**Foto do produto:** na tela **REAL** a foto aparece sob o status (como no site original); na tela **JÁ VALIDADO** ela agora
-aparece embaixo da mensagem (o código original só montava a foto no REAL). No alerta de falsificação não há foto: o código
-não está no banco, então não há produto conhecido.
+**Foto do produto:** na tela **REAL** a foto aparece sob o status (como no site original). Na **JÁ VALIDADO** e no
+**ALERTA DE FALSIFICAÇÃO** a foto da caixa aparece embaixo da mensagem (o código original só a montava no REAL). No alerta,
+como o código não está no banco e não há produto conhecido, mostra-se a caixa **original** do T.G. 15 mg com a legenda
+"Compare com a embalagem original" (PT/ENG/SPA), para a pessoa comparar com o que tem na mão.
 
 **Configurar (uma vez):** Vercel → projeto → *Storage* → *Create Database* → **Upstash for Redis** (ou KV) →
 conectar ao projeto (cria `KV_REST_API_URL` / `KV_REST_API_TOKEN`) → *Redeploy*.
