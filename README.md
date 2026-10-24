@@ -19,13 +19,14 @@ Cópia completa do site publicado em **`https://app-authnow.eth.limo/`**
 | | |
 | --- | --- |
 | Códigos registrados | **21.000** — lote 1 (13.000, `codigos-13000.csv`) + lote 2 (8.000, `codigos-8000-lote2.csv`) |
-| Registro | 426.000 → **447.000** unidades; lotes novos em `batches.json`: `authnow.com.br-2026-09-09-13000` e `authnow.com.br-2026-09-12-8000` (**emissor `indufar`** → foto, "T.G. 15 mg", links e PDF do medicamento) |
-| **CID para publicar** | `bafybeiauvbrrs265lehw2h63zjhdkqwnngegsn725c7rlog3trlg3o24dq` (só do conteúdo estático; a função `api/claim.js` só existe na Vercel) |
+| Registro | **só os nossos 21.000** (`--only-new`: os 426.000 códigos do site antigo — Indufar/PureLabs — **saíram** e agora caem no ALERTA DE FALSIFICAÇÃO); lotes em `batches.json`: `authnow.com.br-2026-09-09-13000` e `authnow.com.br-2026-09-12-8000` (**emissor `indufar`** → foto, "T.G. 15 mg", links e PDF do medicamento) |
+| **CID para publicar** | `bafybeiadiguc52riym2jitjlg7437rotx2zscfg5ncbh7flrx6h6lry7ha` (só do conteúdo estático; a função `api/claim.js` só existe na Vercel) |
 | Integridade | `MANIFEST-integrado.sha256` (324 arquivos) |
 
 **O que mudou em relação ao original** (261 arquivos; o resto é byte a byte igual):
 
-1. `registry/units/*.bin` — os 256 shards ganharam os 21.000 registros novos (ordenados; os 426.000 antigos intactos).
+1. `registry/units/*.bin` — os 256 shards foram refeitos **só com os 21.000 registros novos** (ordenados; os 426.000 do site
+   antigo foram removidos de propósito com `--only-new`; para mantê-los, rode o build sem essa opção).
 2. `registry/batches.json` — +2 lotes, emissor `indufar`.
 3. **Leitor de QR** (`app/scan`, `app/vsq`, `app/not-found`): a regex que extrai o código agora aceita
    `.../go/<codigo>` além de `/c/<emissor>/a/<codigo>`. **Sem isso o scanner do site rejeitaria as 21.000
@@ -52,7 +53,8 @@ num Redis REST (Upstash / Vercel KV) com `SET … NX` — **atômico**: dois apa
 "REAL" os dois. Só o **hash** do código e o hash de um id aleatório do aparelho vão para o banco.
 O servidor devolve **"first" uma única vez por código**: a 2ª leitura, mesmo no mesmo celular, já mostra
 "JÁ VALIDADO" (o id do aparelho, em `localStorage`, só escolhe o texto: "você já validou" × "pode ser uma cópia").
-Vale para **todos** os códigos do registro (inclusive os 426.000 antigos da Indufar/PureLabs).
+Vale para **todos** os códigos do registro (os 21.000 nossos). Os códigos do site antigo não estão mais no registro →
+mostram o alerta de falsificação.
 
 ### 📷 Scanner do site (`--strict-scan`)
 
@@ -79,7 +81,7 @@ node claim-admin.js reset  <codigo>   # libera o código para validar de novo (t
 ```
 
 **Testado** (`node verify-integrated.js`, 36 verificações): 21.000/21.000 códigos → `valid`/`indufar` no lote
-certo; nenhum dos 426.000 registros antigos perdido; shards ordenados e sem chave repetida; 30.000 códigos
+certo; registro com exatamente 21.000 códigos (o código antigo `3D9swb8YSe` → `unknown`); shards ordenados e sem chave repetida; 30.000 códigos
 inventados → 0 aceitos; regex nova extrai `/go/…`; a função `/api/claim` (contra o registro real, Redis falso):
 1ª vez → `first`, mesmo aparelho → `used` (`self`), outro aparelho → `used` + data, código fora do banco → `unknown`
 (sem gravar nada), entradas inválidas → 400, GET → 405, 25 aparelhos simultâneos → só 1 `first`, sem Redis →
@@ -95,7 +97,7 @@ resultado direto: <http://localhost:4173/vsq/?code=OLcUpsOigg>.
 **Adicionar lotes futuros / trocar emissor** — o build é reprodutível a partir do `site/` original:
 
 ```bash
-node build-integrated.js --issuer-id indufar --issuer-json none --single-use --drop-color-text --strict-scan \
+node build-integrated.js --issuer-id indufar --issuer-json none --single-use --drop-color-text --strict-scan --only-new \
   --batch "authnow.com.br-2026-09-09-13000=../entrega-authnow-qr/codigos-13000.csv" \
   --batch "authnow.com.br-2026-09-12-8000=../entrega-authnow-qr/codigos-8000-lote2.csv"
 node verify-integrated.js
@@ -111,13 +113,13 @@ imagens/PDF vão em `site/` antes do build.) O `build-info.json` registra o que 
 ### ⚠️ Limite de segurança do registro (importante antes de imprimir)
 
 O registro guarda só **48 bits** do hash de cada código (1 byte do nome do shard + 5 bytes de chave) e a
-verificação é apenas "essa chave existe?". Com 447.000 unidades, **1 em ~630 milhões de strings quaisquer é
-aceita como `valid`**. Medido aqui: ~880 mil hashes/s numa thread de Node → ~12 min para forjar um código
-válido (~1 min com os 12 cores deste notebook; menos de 1 s com GPU). Como o registro é público, qualquer
-pessoa pode fazer isso offline e imprimir um QR "autêntico" — com o emissor/produto de qualquer lote.
-Isso vale para os lotes antigos (Indufar/PureLabs) também. Não há contagem de scans nem detecção de clone
-nesta versão (o servidor/API que montamos tem as duas coisas). Saídas possíveis: aumentar a chave (12–16
-bytes/registro; muda a função de busca e os shards) e/ou validar no servidor, em vez de (ou além de) no registro.
+verificação é apenas "essa chave existe?". Com 21.000 códigos, **1 em ~13 bilhões de strings quaisquer é
+aceita como `valid`**. Medido aqui: ~880 mil hashes/s numa thread de Node → ~4 h para achar um código
+"válido" (~20 min com os 12 cores deste notebook; segundos com GPU). Como o registro é público, qualquer
+pessoa pode fazer isso offline e imprimir um QR que passa na checagem. A validação única limita o estrago
+(cada código forjado só vale uma vez e o 1º uso fica registrado), mas **não impede** a forja. Saídas possíveis:
+aumentar a chave (12–16 bytes/registro; muda a função de busca e os shards) e/ou validar só no servidor
+(`api/claim.js` já tem o registro; bastaria parar de publicá-lo e conferir lá).
 
 ## O que é
 

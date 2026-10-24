@@ -26,7 +26,7 @@ function args() {
   const o = { batch: [] };
   for (let i = 0; i < a.length; i += 2) {
     const k = a[i].replace(/^--/, '');
-    if (k === 'single-use' || k === 'drop-color-text' || k === 'strict-scan') { o[k] = true; i -= 1; continue; }
+    if (k === 'single-use' || k === 'drop-color-text' || k === 'strict-scan' || k === 'only-new') { o[k] = true; i -= 1; continue; }
     if (k === 'batch') o.batch.push(a[i + 1]);
     else o[k] = a[i + 1];
   }
@@ -67,8 +67,15 @@ for (let s = 0; s < 256; s++) {
   existing += shards[s].length;
 }
 
+// --only-new: o registro clonado trazia 426.000 códigos do site antigo (Indufar/PureLabs). Com esta opção
+// eles saem: só os códigos dos --batch passam como válidos; o resto cai no ALERTA DE FALSIFICAÇÃO.
+const ONLY_NEW = !!A['only-new'];
+if (ONLY_NEW) {
+  batches.length = 0;
+  for (const l of shards) l.length = 0;
+}
 const report = { existing, batches: [], collisions: [] };
-const touched = new Set();
+const touched = new Set(ONLY_NEW ? Array.from({ length: 256 }, (_, i) => i) : []);
 const seenCodes = new Set();
 for (const spec of A.batch) {
   const eq = spec.indexOf('=');
@@ -231,7 +238,7 @@ const changed = [...new Set([
 ])].map((f) => (f.startsWith('registry') || f === '_redirects' ? f : chunkDir + '/' + f)).sort();
 fs.writeFileSync(path.join(__dirname, 'build-info.json'), JSON.stringify({
   out: path.basename(OUT), issuerId: ISSUER_ID, newIssuer: !SKIP_ISSUER_PATCH,
-  singleUse: !!A['single-use'], dropColorText: !!A['drop-color-text'], strictScan: !!A['strict-scan'],
+  singleUse: !!A['single-use'], dropColorText: !!A['drop-color-text'], strictScan: !!A['strict-scan'], onlyNew: ONLY_NEW,
   batches: report.batches.map((b) => ({ id: b.id, csv: b.csv })), changedNonRegistry: changed,
 }, null, 2));
 if (report.collisions.length) process.exitCode = 2;

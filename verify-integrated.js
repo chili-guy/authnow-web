@@ -53,6 +53,28 @@ for (const [id, csv] of LOTES) {
   ok(good === codes.length, `${id}: ${good}/${codes.length} válidos (emissor ${ISSUER})`);
 }
 
+if (INFO.onlyNew) {
+  console.log('2) Registro SÓ com os nossos códigos (--only-new): os do site antigo saíram');
+  let recs = 0, unsorted = 0, dupKeys = 0;
+  for (let sh = 0; sh < 256; sh++) {
+    const b = fs.readFileSync(path.join(NEW, 'registry/units', sh.toString(16).padStart(2, '0') + '.bin'));
+    recs += b.length / 7;
+    for (let o = 7; o < b.length; o += 7) {
+      const c = Buffer.compare(b.subarray(o - 7, o - 2), b.subarray(o, o + 5));
+      if (c > 0) unsorted++; if (c === 0) dupKeys++;
+    }
+  }
+  ok(recs === total, `registro tem exatamente ${recs} códigos (esperado ${total}: só os dos CSVs)`);
+  ok(unsorted === 0 && dupKeys === 0, 'shards ordenados e sem chave repetida');
+  const bn = JSON.parse(fs.readFileSync(path.join(NEW, 'registry/batches.json'), 'utf8'));
+  ok(bn.length === LOTES.length && bn.every((b, i) => b.id === LOTES[i][0] && b.issuer === ISSUER && b.status === 'active'), `batches.json: só os ${LOTES.length} lotes novos (emissor ${ISSUER})`);
+  console.log('3) Códigos do site antigo agora são rejeitados');
+  const old = look('3D9swb8YSe');
+  ok(old.verdict === 'unknown', `código antigo 3D9swb8YSe → ${old.verdict} (alerta de falsificação)`);
+  let fp = 0;
+  for (let i = 0; i < 30000; i++) if (look(crypto.randomBytes(8).toString('base64url').slice(0, 10)).verdict !== 'unknown') fp++;
+  ok(fp === 0, `30.000 códigos aleatórios inventados → ${fp} aceitos`);
+} else {
 console.log('2) Registro original preservado');
 let origRecords = 0, newRecords = 0, missing = 0, unsorted = 0, dupKeys = 0;
 for (let s = 0; s < 256; s++) {
@@ -83,6 +105,8 @@ ok(ctl.verdict === 'valid' && ctl.issuer === 'indufar', `código antigo 3D9swb8Y
 let fp = 0;
 for (let i = 0; i < 30000; i++) if (look(crypto.randomBytes(8).toString('base64url').slice(0, 10)).verdict !== 'unknown') fp++;
 ok(fp === 0, `30.000 códigos aleatórios inventados → ${fp} aceitos`);
+
+}
 
 console.log('4) Leitor de QR (regex patchada)');
 const vsq = fs.readdirSync(path.join(NEW, '_next/static/chunks/app/vsq')).find((f) => f.endsWith('.js'));
@@ -174,7 +198,8 @@ console.log('7) Função /api/claim contra o registro real (Redis falso)');
   r = await call({ code: c1, cid: 'x' }); ok(r.code === 400, 'cid curto → 400');
   r = await call({}, 'GET'); ok(r.code === 405, 'GET → 405');
   r = await call({ code: '3D9swb8YSe', cid: A1 });
-  ok(r.body.result === 'first', 'código antigo Indufar 3D9swb8YSe também passa pela validação única');
+  if (INFO.onlyNew) ok(r.body.result === 'unknown', 'código do site antigo 3D9swb8YSe → unknown (alerta de falsificação)');
+  else ok(r.body.result === 'first', 'código antigo Indufar 3D9swb8YSe também passa pela validação única');
   const par = await Promise.all(Array.from({ length: 25 }, (_, i) => call({ code: d1, cid: String(i).padStart(2, '0').repeat(10) })));
   ok(par.filter((p) => p.body.result === 'first').length === 1, '25 aparelhos ao mesmo tempo no mesmo código → só 1 recebe first');
   const keys = [...kv.store.keys()];
