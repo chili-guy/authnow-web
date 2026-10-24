@@ -131,6 +131,19 @@ if (INFO.dropColorText) {
   ok(colorRe.test(orig) && !colorRe.test(src), 'textos não mencionam mais "cor" (PT/ENG/SPA)');
 }
 
+console.log('6b) Scanner estrito (chunk scan)');
+{
+  const scanF = fs.readdirSync(path.join(NEW, '_next/static/chunks/app/scan')).find((f) => f.endsWith('.js'));
+  const sc = fs.readFileSync(path.join(NEW, '_next/static/chunks/app/scan', scanF), 'utf8');
+  const so = fs.readFileSync(path.join(ORIG, '_next/static/chunks/app/scan', scanF), 'utf8');
+  if (INFO.strictScan) {
+    try { new (require('vm').Script)(sc); ok(true, 'chunk scan continua JavaScript válido'); } catch (e) { ok(false, 'chunk scan com erro: ' + e.message); }
+    ok(so.includes('setTimeout(async()=>{a(await R(t))},4e3)') && !sc.includes('},4e3)'), 'atalho de 4 s que se auto-validava sem ler QR foi removido');
+    ok(sc.includes('location.replace("/vsq/?code="') && sc.includes('location.assign("/vsq/?code="'), 'código fora do banco (link ou QR lido) vai para a tela de alerta');
+    ok(!sc.includes('Produto Aut\xeantico!'), 'transição não diz "Produto Autêntico!" antes da checagem de uso único');
+  } else ok(sc.includes('},4e3)'), 'build sem --strict-scan mantém o scanner original');
+}
+
 console.log('7) Função /api/claim contra o registro real (Redis falso)');
 (async () => {
   const kv = require('./dev-fake-kv').start(4777);
@@ -151,9 +164,9 @@ console.log('7) Função /api/claim contra o registro real (Redis falso)');
   ok(r.code === 200 && r.body.result === 'first' && !!r.body.at, '1ª validação (aparelho A) → first');
   const at1 = r.body.at;
   r = await call({ code: c1, cid: A1 });
-  ok(r.body.result === 'first' && r.body.at === at1, 'mesmo aparelho reabrindo → continua first (mesma data)');
+  ok(r.body.result === 'used' && r.body.self === true && r.body.at === at1, 'mesmo aparelho reabrindo → used (self), mesma data: único uso vale também para quem validou');
   r = await call({ code: c1, cid: B1 });
-  ok(r.body.result === 'used' && r.body.at === at1, 'outro aparelho → used, com a data da 1ª validação');
+  ok(r.body.result === 'used' && r.body.self === false && r.body.at === at1, 'outro aparelho → used (não self), com a data da 1ª validação');
   r = await call({ code: 'CODIGOFALSO', cid: A1 });
   ok(r.code === 200 && r.body.result === 'unknown', 'código fora do banco → unknown (alerta de falsificação)');
   ok(![...kv.store.keys()].some((k) => k.includes('CODIGOFALSO')), 'código desconhecido não grava nada no Redis');

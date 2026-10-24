@@ -26,7 +26,7 @@ function args() {
   const o = { batch: [] };
   for (let i = 0; i < a.length; i += 2) {
     const k = a[i].replace(/^--/, '');
-    if (k === 'single-use' || k === 'drop-color-text') { o[k] = true; i -= 1; continue; }
+    if (k === 'single-use' || k === 'drop-color-text' || k === 'strict-scan') { o[k] = true; i -= 1; continue; }
     if (k === 'batch') o.batch.push(a[i + 1]);
     else o[k] = a[i + 1];
   }
@@ -146,19 +146,22 @@ const ANX = {
   POR: {
     UNKNOWN: { label: 'ALERTA DE FALSIFICAÇÃO', msg: 'Este código não consta no banco de dados da AuthNow. O produto pode ser FALSIFICADO. Não utilize e informe o fabricante.' },
     USED: { label: 'JÁ VALIDADO', msg: 'Este produto já foi validado em {d}. Cada código só pode ser validado uma vez. Se não foi você, o produto pode ser uma cópia — não utilize e informe o fabricante.', msg0: 'Este produto já foi validado anteriormente. Cada código só pode ser validado uma vez. Se não foi você, o produto pode ser uma cópia — não utilize e informe o fabricante.' },
+    SELF: { label: 'JÁ VALIDADO', msg: 'Você já validou este produto em {d}. Cada código só pode ser validado uma vez.', msg0: 'Você já validou este produto anteriormente. Cada código só pode ser validado uma vez.' },
   },
   ENG: {
     UNKNOWN: { label: 'COUNTERFEIT ALERT', msg: 'This code is not in the AuthNow database. This product may be COUNTERFEIT. Do not use it and notify the manufacturer.' },
     USED: { label: 'ALREADY VALIDATED', msg: 'This product was already validated on {d}. Each code can only be validated once. If it was not you, the product may be a copy — do not use it and notify the manufacturer.', msg0: 'This product was already validated before. Each code can only be validated once. If it was not you, the product may be a copy — do not use it and notify the manufacturer.' },
+    SELF: { label: 'ALREADY VALIDATED', msg: 'You already validated this product on {d}. Each code can only be validated once.', msg0: 'You already validated this product before. Each code can only be validated once.' },
   },
   SPA: {
     UNKNOWN: { label: 'ALERTA DE FALSIFICACIÓN', msg: 'Este código no consta en la base de datos de AuthNow. El producto puede ser FALSIFICADO. No lo utilice e informe al fabricante.' },
     USED: { label: 'YA VALIDADO', msg: 'Este producto ya fue validado el {d}. Cada código solo puede validarse una vez. Si no fue usted, el producto puede ser una copia: no lo utilice e informe al fabricante.', msg0: 'Este producto ya fue validado antes. Cada código solo puede validarse una vez. Si no fue usted, el producto puede ser una copia: no lo utilice e informe al fabricante.' },
+    SELF: { label: 'YA VALIDADO', msg: 'Usted ya validó este producto el {d}. Cada código solo puede validarse una vez.', msg0: 'Usted ya validó este producto antes. Cada código solo puede validarse una vez.' },
   },
 };
 const HELPERS =
   'var ANX=' + uni(ANX) + ';' +
-  'function ANMSG(j,o){var x=ANX[j]||ANX.POR,m=x[(o.status||"").toUpperCase()];if(!m)return null;var d="";if(o.firstAt){try{d=new Date(o.firstAt).toLocaleString(s[j]||"pt-BR")}catch(e){}}return{label:m.label,msg:d?m.msg.replace("{d}",d):(m.msg0||m.msg)}}' +
+  'function ANMSG(j,o){var x=ANX[j]||ANX.POR,m=x[o.self&&"USED"===o.status?"SELF":(o.status||"").toUpperCase()];if(!m)return null;var d="";if(o.firstAt){try{d=new Date(o.firstAt).toLocaleString(s[j]||"pt-BR")}catch(e){}}return{label:m.label,msg:d?m.msg.replace("{d}",d):(m.msg0||m.msg)}}' +
   'function ANCID(c){var k="an_cid:"+c,v=null;try{v=localStorage.getItem(k)}catch(e){}if(!v){var b=new Uint8Array(16);crypto.getRandomValues(b);v=Array.prototype.map.call(b,function(x){return("0"+x.toString(16)).slice(-2)}).join("");try{localStorage.setItem(k,v)}catch(e){}}return v}' +
   'async function ANCLAIM(c){var r=await fetch("/api/claim/",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({code:c,cid:ANCID(c)})});if(!r.ok)throw Error("claim: HTTP "+r.status);return r.json()}';
 if (A['single-use']) {
@@ -167,9 +170,24 @@ if (A['single-use']) {
   patchFile(F, 'children:y?N.real:N.notVerified', 'children:y?N.real:(ANMSG(j,o)||{}).label||N.notVerified', 1);
   patchFile(F, 'children:N.invalidMessage', 'children:(ANMSG(j,o)||{}).msg||N.invalidMessage', 1);
   patchFile(F, '(0,f.Pw)(a).then(a=>e&&c(a),()=>e&&c("error"))',
-    '(0,f.Pw)(a).then(r=>"valid"!==r.verdict?r:ANCLAIM(a).then(k=>"first"===k.result?r:{verdict:k.result,issuer:r.issuer,firstAt:k.at})).then(a=>e&&c(a),()=>e&&c("error"))', 1);
+    '(0,f.Pw)(a).then(r=>"valid"!==r.verdict?r:ANCLAIM(a).then(k=>"first"===k.result?r:{verdict:k.result,issuer:r.issuer,firstAt:k.at,self:k.self})).then(a=>e&&c(a),()=>e&&c("error"))', 1);
   patchFile(F, 'product:(0,u.tv)(t.issuer,a,"valid"===t.verdict?"REAL":t.verdict.toUpperCase())',
-    'product:Object.assign((0,u.tv)(t.issuer,a,"valid"===t.verdict?"REAL":t.verdict.toUpperCase()),{firstAt:t.firstAt})', 1);
+    'product:Object.assign((0,u.tv)(t.issuer,a,"valid"===t.verdict?"REAL":t.verdict.toUpperCase()),{firstAt:t.firstAt,self:t.self})', 1);
+}
+
+// 3e. --strict-scan: o scanner do site só valida o que a câmera de fato lê.
+//   • tira o atalho de "demo": com um código guardado, após 4 s ele se dava por validado SEM ler QR nenhum;
+//   • QR com código fora do banco (ex.: https://authnow.com.br/go/<falso>) vai direto para a tela de ALERTA
+//     DE FALSIFICAÇÃO; link aberto com código falso também (sem esperar a câmera);
+//   • a tela de transição não diz mais "Produto Autêntico!" antes da checagem de uso único.
+if (A['strict-scan']) {
+  const S = chunkDir + '/' + find1(/^app\/scan\/page-.*\.js$/)[0];
+  patchFile(S, '!n&&(d(),t&&(e=setTimeout(async()=>{a(await R(t))},4e3)))',
+    '!n&&(d(),t&&(0,v.Pw)(t).then(r=>{"valid"!==r.verdict&&!n&&location.replace("/vsq/?code="+encodeURIComponent(t))},()=>{}))', 1);
+  patchFile(S, 'let n=(0,f.Ex)((0,f.N2)(e));try{if(n&&"valid"===(await (0,v.Pw)(n)).verdict)return{ok:!0,product:{code:n,name:""}}}catch(e){}',
+    'let n=(0,f.Ex)((0,f.N2)(e));try{if(n){let r=await (0,v.Pw)(n);if("valid"===r.verdict)return{ok:!0,product:{code:n,name:""}};if(/(?:\\/(?:c\\/[^/]+\\/a|go)\\/|^[A-Za-z0-9_-]{4,32}$|[?&]code=)/i.test((e||"").trim()))return location.assign("/vsq/?code="+encodeURIComponent(n)),new Promise(()=>{})}}catch(e){}', 1);
+  patchFile(S, 'children:"Produto Aut\\xeantico!"', 'children:"Etiqueta reconhecida"', 1);
+  patchFile(S, '"A etiqueta deste produto",(0,r.jsx)("br",{}),"foi verificada com sucesso"', '"Conferindo se este c\\xf3digo",(0,r.jsx)("br",{}),"ainda pode ser validado"', 1);
 }
 
 // 3d. --drop-color-text: as etiquetas AuthNow não têm cor; tira "e cor" dos textos (3 idiomas)
@@ -213,7 +231,7 @@ const changed = [...new Set([
 ])].map((f) => (f.startsWith('registry') || f === '_redirects' ? f : chunkDir + '/' + f)).sort();
 fs.writeFileSync(path.join(__dirname, 'build-info.json'), JSON.stringify({
   out: path.basename(OUT), issuerId: ISSUER_ID, newIssuer: !SKIP_ISSUER_PATCH,
-  singleUse: !!A['single-use'], dropColorText: !!A['drop-color-text'],
+  singleUse: !!A['single-use'], dropColorText: !!A['drop-color-text'], strictScan: !!A['strict-scan'],
   batches: report.batches.map((b) => ({ id: b.id, csv: b.csv })), changedNonRegistry: changed,
 }, null, 2));
 if (report.collisions.length) process.exitCode = 2;

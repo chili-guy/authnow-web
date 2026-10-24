@@ -2,8 +2,9 @@
 //
 //   POST /api/claim/   { "code": "<codigo>", "cid": "<id do aparelho>" }
 //
-//   result: "first"   1ª validação (ou o MESMO aparelho voltando a abrir) → REAL
-//           "used"    já validado antes por outro aparelho → "produto já validado" (+ data)
+//   result: "first"   1ª validação → REAL (só UMA resposta "first" por código, em toda a vida)
+//           "used"    já validado antes → "produto já validado" (+ data);
+//                     self:true quando foi ESTE mesmo aparelho (a tela muda o texto: "você já validou")
 //           "unknown" código fora do banco de dados → alerta de falsificação
 //           "revoked" | "recalled"  (registro)
 //
@@ -108,8 +109,7 @@ module.exports = async (req, res) => {
     ]);
     const rec = parse(stored) || {};
     if (setRes === 'OK') return send(res, 200, { result: 'first', at: rec.at || now });
-    if (rec.id === idHash) return send(res, 200, { result: 'first', at: rec.at, revisit: true });
-    return send(res, 200, { result: 'used', at: rec.at });
+    return send(res, 200, { result: 'used', at: rec.at, self: rec.id === idHash });
   } catch (err) {
     console.error('claim failed:', err && err.message);
     return send(res, 503, { error: 'unavailable' });

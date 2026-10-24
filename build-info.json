@@ -4,6 +4,7 @@
   "newIssuer": false,
   "singleUse": true,
   "dropColorText": true,
+  "strictScan": true,
   "batches": [
     {
       "id": "authnow.com.br-2026-09-09-13000",
