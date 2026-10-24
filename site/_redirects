@@ -1,0 +1,10 @@
+# IPFS gateway redirects (https://specs.ipfs.tech/http-gateways/web-redirects-file/).
+# Honored on subdomain gateways (<cid>.ipfs.dweb.link) and DNSLink domains;
+# only evaluated when the requested path does not exist in the site.
+
+# Packaging QR entry → entry screen with the code.
+/c/:issuer/a/:code  /?code=:code  302
+/validate-new-product  /  302
+
+# Anything else missing → the exported 404 page.
+/*  /404.html  404
