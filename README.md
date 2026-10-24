@@ -187,8 +187,11 @@ GitHub/CI, `gh auth status` em outros computadores, e os painéis de deploy
 ## GitHub e Vercel
 
 - Repositório (privado): `chili-guy/authnow-web`. A Vercel serve **`site-integrado/`** (ver `vercel.json`):
-  `outputDirectory`, `trailingSlash` e os 3 redirects que no IPFS/Netlify vivem no `_redirects`
+  `outputDirectory`, `trailingSlash` e os redirects que no IPFS/Netlify vivem no `_redirects`
   (`/c/:issuer/a/:code`, `/go/:code`, `/validate-new-product`). A Vercel **não lê** o `_redirects`.
+  ⚠️ Com `trailingSlash: true` a Vercel primeiro manda `/go/X` → `/go/X/` (308) e só depois aplica os redirects, então
+  **cada regra existe nas duas formas (com e sem `/` no fim)** — sem a versão com barra, o link impresso nas etiquetas
+  (`/go/<codigo>`) dava 404. Teste sempre com `curl -L https://<site>/go/<codigo>` depois de mexer no `vercel.json`.
 - `.gitattributes` desliga a conversão de fim de linha (`* -text`) para os arquivos chegarem à Vercel
   byte a byte iguais aos verificados localmente.
 - **Importar na Vercel:** vercel.com/new → escolher `authnow-web` → *Framework Preset: Other* → deixar
