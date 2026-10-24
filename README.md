@@ -20,7 +20,7 @@ Cópia completa do site publicado em **`https://app-authnow.eth.limo/`**
 | --- | --- |
 | Códigos registrados | **21.000** — lote 1 (13.000, `codigos-13000.csv`) + lote 2 (8.000, `codigos-8000-lote2.csv`) |
 | Registro | 426.000 → **447.000** unidades; lotes novos em `batches.json`: `authnow.com.br-2026-09-09-13000` e `authnow.com.br-2026-09-12-8000` (**emissor `indufar`** → foto, "T.G. 15 mg", links e PDF do medicamento) |
-| **CID para publicar** | `bafybeibmwroiqlh45tedfkm4sbyz4ltvzubwk3irli4zj4xdoxdgvecbbu` (só do conteúdo estático; a função `api/claim.js` só existe na Vercel) |
+| **CID para publicar** | `bafybeiauvbrrs265lehw2h63zjhdkqwnngegsn725c7rlog3trlg3o24dq` (só do conteúdo estático; a função `api/claim.js` só existe na Vercel) |
 | Integridade | `MANIFEST-integrado.sha256` (324 arquivos) |
 
 **O que mudou em relação ao original** (261 arquivos; o resto é byte a byte igual):
@@ -32,7 +32,8 @@ Cópia completa do site publicado em **`https://app-authnow.eth.limo/`**
    etiquetas já geradas** (`https://authnow.com.br/go/<codigo>`).
 4. `_redirects` — `/go/:code → /?code=:code` (302), igual à regra `/c/…` que já existia.
 5. **Validação única + alerta de falsificação** (`--single-use`, só em `app/vsq`) — ver seção abaixo.
-6. **Textos sem "e cor"** (`--drop-color-text`): as etiquetas AuthNow não têm cor; as frases "código e cor" /
+6. **Scanner estrito** (`--strict-scan`, só em `app/scan`) — ver seção "Scanner do site" abaixo.
+7. **Textos sem "e cor"** (`--drop-color-text`): as etiquetas AuthNow não têm cor; as frases "código e cor" /
    "code and color" / "código y color" agora dizem só "código" (PT/ENG/SPA).
 
 ### 🔒 Validação única (código usado uma vez) e alerta de falsificação
@@ -40,7 +41,7 @@ Cópia completa do site publicado em **`https://app-authnow.eth.limo/`**
 | Situação | O que a pessoa vê (PT / ENG / SPA) |
 | --- | --- |
 | 1ª validação do código | **REAL** + foto/nome do produto (como antes) |
-| Código já validado antes (outro aparelho) | **JÁ VALIDADO** / **ALREADY VALIDATED** / **YA VALIDADO** + "foi validado em *data/hora*" |
+| Código já validado antes (**qualquer** aparelho, inclusive o mesmo) | **JÁ VALIDADO** / **ALREADY VALIDATED** / **YA VALIDADO** + data/hora. Outro aparelho: "…se não foi você, pode ser uma cópia"; o mesmo aparelho: "Você já validou este produto em …" |
 | Código que **não está no banco** | **ALERTA DE FALSIFICAÇÃO** / **COUNTERFEIT ALERT** / **ALERTA DE FALSIFICACIÓN** |
 | Código revogado/recall | tela que o site já tinha |
 | Servidor de validação fora do ar / sem Redis | "Não foi possível verificar" (**falha fechada**: nunca diz REAL sem conseguir registrar o uso) |
@@ -49,9 +50,20 @@ Como funciona: a tela de resultado chama `POST /api/claim/` (`api/claim.js`, Ver
 confere o código no registro (`site-integrado/registry`, empacotado via `includeFiles`) e grava a "marca de uso"
 num Redis REST (Upstash / Vercel KV) com `SET … NX` — **atômico**: dois aparelhos ao mesmo tempo nunca recebem
 "REAL" os dois. Só o **hash** do código e o hash de um id aleatório do aparelho vão para o banco.
-O aparelho que validou primeiro continua vendo REAL ao reabrir (o id fica no `localStorage`); **outro** aparelho
-(ou o mesmo com dados do navegador limpos) vê "JÁ VALIDADO". Vale para **todos** os códigos do registro
-(inclusive os 426.000 antigos da Indufar/PureLabs).
+O servidor devolve **"first" uma única vez por código**: a 2ª leitura, mesmo no mesmo celular, já mostra
+"JÁ VALIDADO" (o id do aparelho, em `localStorage`, só escolhe o texto: "você já validou" × "pode ser uma cópia").
+Vale para **todos** os códigos do registro (inclusive os 426.000 antigos da Indufar/PureLabs).
+
+### 📷 Scanner do site (`--strict-scan`)
+
+O scanner original tinha um atalho de demonstração: com um código guardado (vindo do link), **4 s depois ele se dava
+por validado sem ler QR nenhum** — por isso "qualquer QR validava". Agora:
+
+- sem QR na câmera, ele só espera; QR sem relação (ex.: um site qualquer) → "Falha na verificação";
+- QR `.../go/<codigo>` (ou `/c/…/a/<codigo>`, ou o código puro) com código **fora do banco** → vai direto para o
+  **ALERTA DE FALSIFICAÇÃO**; abrir um link com código falso também (sem esperar a câmera);
+- a tela de transição diz "Etiqueta reconhecida / Conferindo se este código ainda pode ser validado" em vez de
+  "Produto Autêntico!" (a autenticidade só é afirmada na tela de resultado, depois da checagem de uso único).
 
 **Configurar (uma vez):** Vercel → projeto → *Storage* → *Create Database* → **Upstash for Redis** (ou KV) →
 conectar ao projeto (cria `KV_REST_API_URL` / `KV_REST_API_TOKEN`) → *Redeploy*.
@@ -66,15 +78,15 @@ node claim-admin.js status <codigo>   # já foi validado? quando?
 node claim-admin.js reset  <codigo>   # libera o código para validar de novo (testes / devolução)
 ```
 
-**Testado** (`node verify-integrated.js`, 31 verificações): 21.000/21.000 códigos → `valid`/`indufar` no lote
+**Testado** (`node verify-integrated.js`, 36 verificações): 21.000/21.000 códigos → `valid`/`indufar` no lote
 certo; nenhum dos 426.000 registros antigos perdido; shards ordenados e sem chave repetida; 30.000 códigos
 inventados → 0 aceitos; regex nova extrai `/go/…`; a função `/api/claim` (contra o registro real, Redis falso):
-1ª vez → `first`, mesmo aparelho → `first`, outro aparelho → `used` + data, código fora do banco → `unknown`
+1ª vez → `first`, mesmo aparelho → `used` (`self`), outro aparelho → `used` + data, código fora do banco → `unknown`
 (sem gravar nada), entradas inválidas → 400, GET → 405, 25 aparelhos simultâneos → só 1 `first`, sem Redis →
-503. No navegador (PT/ENG/SPA): REAL com "T.G. 15 mg" → outro aparelho "JÁ VALIDADO" com data → código falso
-"ALERTA DE FALSIFICAÇÃO".
-**Não testado:** a Vercel de verdade com Redis real, o scanner por câmera e a tela do padrão de desenho com o
-código vindo do QR (precisam de celular/produção).
+503. No navegador (PT/ENG/SPA), com **câmera simulada**: 7 s sem QR → continua esperando; QR de site qualquer →
+"Falha na verificação"; QR `/go/FAKECODE99` → "ALERTA DE FALSIFICAÇÃO"; QR válido → REAL com "T.G. 15 mg"; 2ª
+leitura → "JÁ VALIDADO" ("você já validou…"); outro aparelho → "JÁ VALIDADO … pode ser uma cópia".
+**Não testado:** a câmera de um celular de verdade e a tela do padrão de desenho com o código vindo do QR.
 
 **Rodar:** `node serve.js` → serve `site-integrado` (`SITE_DIR=site node serve.js` serve o original).
 Teste: <http://localhost:4173/go/OLcUpsOigg> → redireciona para `/?code=OLcUpsOigg`;
@@ -83,7 +95,7 @@ resultado direto: <http://localhost:4173/vsq/?code=OLcUpsOigg>.
 **Adicionar lotes futuros / trocar emissor** — o build é reprodutível a partir do `site/` original:
 
 ```bash
-node build-integrated.js --issuer-id indufar --issuer-json none --single-use --drop-color-text \
+node build-integrated.js --issuer-id indufar --issuer-json none --single-use --drop-color-text --strict-scan \
   --batch "authnow.com.br-2026-09-09-13000=../entrega-authnow-qr/codigos-13000.csv" \
   --batch "authnow.com.br-2026-09-12-8000=../entrega-authnow-qr/codigos-8000-lote2.csv"
 node verify-integrated.js
